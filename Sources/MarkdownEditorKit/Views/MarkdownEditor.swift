@@ -154,6 +154,9 @@ public struct MarkdownEditor: View {
         - [x] A completed task
 
         > Plus block quotes.
+        
+        Divider
+        ---
         """
         @State private var mode: MarkdownEditorMode = .source
 

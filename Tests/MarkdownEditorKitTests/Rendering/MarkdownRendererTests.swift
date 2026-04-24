@@ -93,10 +93,12 @@ struct MarkdownRendererTests {
         #expect(link == URL(string: "https://example.com"))
     }
 
-    @Test("Horizontal rules render as a drawn rule, not raw dashes")
+    @Test("Horizontal rules render as a single-line attachment, not raw dashes")
     func horizontalRule() {
         let rendered = Self.makeRenderer().render("---")
         #expect(!rendered.string.contains("---"))
-        #expect(rendered.string.contains("─"))
+        #expect(!rendered.string.contains("─"))
+        let attachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
+        #expect(attachment != nil)
     }
 }

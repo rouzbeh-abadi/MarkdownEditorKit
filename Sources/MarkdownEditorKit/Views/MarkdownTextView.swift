@@ -40,7 +40,7 @@ struct MarkdownTextView: UIViewRepresentable {
     let onImagePick: (() -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = MarkdownRichTextView()
         textView.delegate = context.coordinator
         textView.alwaysBounceVertical = true
         textView.allowsEditingTextAttributes = false
@@ -120,6 +120,10 @@ struct MarkdownTextView: UIViewRepresentable {
             uiView.textColor = config.textColor
             uiView.backgroundColor = config.backgroundColor
             uiView.textContainerInset = config.style.textView.contentInsets
+            if let rich = uiView as? MarkdownRichTextView {
+                rich.drawsHorizontalRules = parent.hidesMarkers
+                rich.horizontalRuleColor = config.syntaxColor
+            }
             installAccessoryIfNeeded()
             lastFont = config.font
             lastTextColor = config.textColor
@@ -159,6 +163,10 @@ struct MarkdownTextView: UIViewRepresentable {
             uiView.textColor = config.textColor
             uiView.backgroundColor = config.backgroundColor
             uiView.textContainerInset = config.style.textView.contentInsets
+            if let rich = uiView as? MarkdownRichTextView {
+                rich.drawsHorizontalRules = parent.hidesMarkers
+                rich.horizontalRuleColor = config.syntaxColor
+            }
 
             if toolbarChanged {
                 installAccessoryIfNeeded()
@@ -245,6 +253,9 @@ struct MarkdownTextView: UIViewRepresentable {
                 .font: parent.configuration.font,
                 .foregroundColor: parent.configuration.textColor,
             ]
+            if let rich = textView as? MarkdownRichTextView {
+                rich.setNeedsRuleOverlayUpdate()
+            }
         }
 
         // MARK: UITextViewDelegate
@@ -306,5 +317,137 @@ struct MarkdownTextView: UIViewRepresentable {
     /// keyboard focus from the text view.
     private final class AccessoryHostingController<Content: View>: UIHostingController<Content> {
         override var canBecomeFirstResponder: Bool { false }
+    }
+}
+
+/// A `UITextView` subclass that can paint full-width horizontal rules on
+/// top of `^---$` lines while editing.
+///
+/// Rich mode renders the three raw `-` glyphs transparently to preserve
+/// the line's vertical height, then this view draws a 1 pt line across
+/// the full content width at the line's vertical midpoint. Drawing on a
+/// dedicated overlay subview (rather than through attribute runs) is the
+/// only way to span the container edges regardless of how the three
+/// hyphens would measure at a given font size.
+final class MarkdownRichTextView: UITextView {
+
+    /// When `true`, paragraphs matching `^---$` are painted as a
+    /// full-width overlay line. When `false`, the overlay is hidden.
+    var drawsHorizontalRules: Bool = false {
+        didSet {
+            overlay.isHidden = !drawsHorizontalRules
+            setNeedsRuleOverlayUpdate()
+        }
+    }
+
+    /// The color used for the overlay rule.
+    var horizontalRuleColor: UIColor = .separator {
+        didSet { setNeedsRuleOverlayUpdate() }
+    }
+
+    private lazy var overlay: RuleOverlayView = {
+        let view = RuleOverlayView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        view.isHidden = true
+        view.textView = self
+        addSubview(view)
+        return view
+    }()
+
+    override init(frame: CGRect, textContainer: NSTextContainer?) {
+        super.init(frame: frame, textContainer: textContainer)
+        _ = overlay
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        _ = overlay
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        overlay.frame = CGRect(origin: .zero, size: contentSize)
+        bringSubviewToFront(overlay)
+        overlay.updateRules()
+    }
+
+    /// Requests that the overlay recompute its rule positions. Call this
+    /// after changing `attributedText`, since the new layout may have
+    /// moved or added `---` paragraphs.
+    func setNeedsRuleOverlayUpdate() {
+        setNeedsLayout()
+    }
+}
+
+/// A transparent overlay that draws horizontal-rule lines on top of its
+/// host text view. Holds a `CAShapeLayer` path recomputed whenever the
+/// host's layout or text content changes.
+private final class RuleOverlayView: UIView {
+
+    weak var textView: MarkdownRichTextView?
+
+    private let shape: CAShapeLayer = {
+        let layer = CAShapeLayer()
+        layer.fillColor = UIColor.clear.cgColor
+        layer.lineWidth = 1
+        return layer
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.addSublayer(shape)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        layer.addSublayer(shape)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        shape.frame = bounds
+    }
+
+    func updateRules() {
+        guard let textView, textView.drawsHorizontalRules else {
+            shape.path = nil
+            return
+        }
+        let text = textView.text ?? ""
+        guard let regex = try? NSRegularExpression(pattern: "^-{3,}$",
+                                                    options: .anchorsMatchLines) else {
+            shape.path = nil
+            return
+        }
+
+        let inset = textView.textContainerInset
+        let left = inset.left
+        let right = textView.bounds.width - inset.right
+        guard right > left else {
+            shape.path = nil
+            return
+        }
+
+        let path = UIBezierPath()
+        let full = NSRange(location: 0, length: (text as NSString).length)
+        regex.enumerateMatches(in: text, range: full) { match, _, _ in
+            guard let match,
+                  let start = textView.position(from: textView.beginningOfDocument,
+                                                 offset: match.range.location),
+                  let end = textView.position(from: start, offset: match.range.length),
+                  let range = textView.textRange(from: start, to: end)
+            else { return }
+            let rect = textView.firstRect(for: range)
+            guard rect.height.isFinite, rect.origin.y.isFinite, !rect.isNull, rect.height > 0 else {
+                return
+            }
+            let y = rect.midY
+            path.move(to: CGPoint(x: left, y: y))
+            path.addLine(to: CGPoint(x: right, y: y))
+        }
+
+        shape.path = path.cgPath
+        shape.strokeColor = textView.horizontalRuleColor.cgColor
     }
 }

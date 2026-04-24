@@ -197,8 +197,18 @@ public struct MarkdownSyntaxHighlighter {
             let snippet = (string as NSString).substring(with: range)
             let level = snippet.prefix { $0 == "#" }.count
             attributed.addAttribute(.font, value: headingFont(for: level), range: range)
-        case .listMarker, .taskListMarker, .quote, .horizontalRule:
+        case .listMarker, .taskListMarker, .quote:
             attributed.addAttribute(.foregroundColor, value: style.syntaxColor, range: range)
+        case .horizontalRule:
+            if style.hidesMarkers {
+                // In rich mode the raw `---` glyphs are painted
+                // transparent so they still occupy a line's vertical
+                // space; the visible full-width rule is drawn as a 1 pt
+                // overlay by the hosting text view.
+                attributed.addAttribute(.foregroundColor, value: UIColor.clear, range: range)
+            } else {
+                attributed.addAttribute(.foregroundColor, value: style.syntaxColor, range: range)
+            }
         case .link:
             attributed.addAttributes([
                                          .foregroundColor: UIColor.systemBlue,
@@ -248,7 +258,11 @@ public struct MarkdownSyntaxHighlighter {
             let prefixLength = hashes + (snippet.dropFirst(hashes).first == " " ? 1 : 0)
             return [NSRange(location: range.location, length: prefixLength)]
         case .listMarker, .taskListMarker, .quote, .horizontalRule:
-            return [range]
+            // Block markers have no visual substitute the way inline markers
+            // inherit body font or headings inherit heading font — hiding
+            // them leaves bullets/numbers/checkboxes/dividers invisible, so
+            // we keep them visible and syntax-coloured in rich mode too.
+            return []
         case .link:
             return linkMarkerRanges(in: range, within: string)
         case .fencedCode:

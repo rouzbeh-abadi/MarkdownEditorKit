@@ -103,11 +103,7 @@ public struct MarkdownRenderer {
 
     private func renderLine(_ line: String) -> NSAttributedString {
         if line == "---" || line == "***" || line == "___" {
-            return NSAttributedString(string: String(repeating: "─", count: 24),
-                                      attributes: [
-                                          .font: style.bodyFont,
-                                          .foregroundColor: style.syntaxColor,
-                                      ])
+            return horizontalRuleAttachmentString()
         }
         if let match = line.firstMatch(of: #/^(#{1,6}) (.*)$/#) {
             let level = match.output.1.count
@@ -332,5 +328,61 @@ public struct MarkdownRenderer {
         let descriptor = style.bodyFont.fontDescriptor.withSymbolicTraits(.traitBold)
             ?? style.bodyFont.fontDescriptor
         return UIFont(descriptor: descriptor, size: style.bodyFont.pointSize * scale)
+    }
+
+    // MARK: - Horizontal rule
+
+    /// Returns a one-character attributed string whose text attachment draws
+    /// a thin horizontal line across the host text container's width. Using
+    /// an attachment instead of a run of `─` glyphs keeps the rule on a
+    /// single line at any width and Dynamic Type size.
+    private func horizontalRuleAttachmentString() -> NSAttributedString {
+        let attachment = HorizontalRuleAttachment(color: style.syntaxColor,
+                                                  thickness: 1,
+                                                  lineHeight: style.bodyFont.lineHeight)
+        return NSAttributedString(attachment: attachment)
+    }
+
+    private final class HorizontalRuleAttachment: NSTextAttachment {
+
+        private let ruleColor: UIColor
+        private let ruleThickness: CGFloat
+        private let lineHeight: CGFloat
+
+        init(color: UIColor, thickness: CGFloat, lineHeight: CGFloat) {
+            self.ruleColor = color
+            self.ruleThickness = thickness
+            self.lineHeight = lineHeight
+            super.init(data: nil, ofType: nil)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func attachmentBounds(for textContainer: NSTextContainer?,
+                                       proposedLineFragment lineFrag: CGRect,
+                                       glyphPosition position: CGPoint,
+                                       characterIndex charIndex: Int) -> CGRect {
+            let padding = textContainer?.lineFragmentPadding ?? 0
+            let width = max((textContainer?.size.width ?? lineFrag.width) - padding * 2, 0)
+            return CGRect(x: 0,
+                          y: (lineHeight - ruleThickness) / -2,
+                          width: width,
+                          height: ruleThickness)
+        }
+
+        override func image(forBounds imageBounds: CGRect,
+                            textContainer: NSTextContainer?,
+                            characterIndex charIndex: Int) -> UIImage? {
+            let size = CGSize(width: max(imageBounds.width, 1),
+                              height: max(imageBounds.height, 1))
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let color = ruleColor
+            return renderer.image { context in
+                color.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+            }
+        }
     }
 }

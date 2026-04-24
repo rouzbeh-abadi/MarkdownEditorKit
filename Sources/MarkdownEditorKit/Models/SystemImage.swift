@@ -55,7 +55,7 @@ public enum SystemImage: String, CaseIterable, Sendable {
     case image = "photo"
     case imagePicker = "photo.badge.plus"
     case quote = "text.quote"
-    case horizontalRule = "minus"
+    case horizontalRule = "rectangle.split.1x2"
 
     /// The SF Symbol name, suitable for `UIImage(systemName:)` and
     /// `Image(systemName:)`.

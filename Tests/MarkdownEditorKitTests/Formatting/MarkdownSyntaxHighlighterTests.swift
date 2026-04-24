@@ -139,38 +139,34 @@ struct MarkdownSyntaxHighlighterTests {
         #expect((titleFont?.pointSize ?? 0) > Self.baseSize)
     }
 
-    @Test("Quote prefix collapses but the line body stays visible")
-    func hiddenQuoteKeepsBody() {
+    @Test("Quote prefix stays visible but syntax-coloured in rich mode")
+    func hiddenModeKeepsQuoteMarker() {
         let input = "> hello"
         let result = Self.makeHidingHighlighter().highlight(input)
         let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
-        let bodyFont = result.attribute(.font, at: 2, effectiveRange: nil) as? UIFont
-        #expect((prefixFont?.pointSize ?? 99) < 1)
-        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+        let prefixColor = result.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        #expect((prefixFont?.pointSize ?? 0) >= Self.baseSize)
+        #expect(prefixColor == .gray)
     }
 
-    @Test("Task-list prefix collapses the full `- [ ] ` span")
-    func hiddenTaskListPrefix() {
+    @Test("Task-list prefix stays visible but syntax-coloured in rich mode")
+    func hiddenModeKeepsTaskListMarker() {
         let input = "- [ ] Buy milk"
         let result = Self.makeHidingHighlighter().highlight(input)
         let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
-        let bracketFont = result.attribute(.font, at: 2, effectiveRange: nil) as? UIFont
-        let bodyLocation = (input as NSString).range(of: "Buy").location
-        let bodyFont = result.attribute(.font, at: bodyLocation, effectiveRange: nil) as? UIFont
-        #expect((prefixFont?.pointSize ?? 99) < 1)
-        #expect((bracketFont?.pointSize ?? 99) < 1)
-        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+        let bracketColor = result.attribute(.foregroundColor, at: 2, effectiveRange: nil) as? UIColor
+        #expect((prefixFont?.pointSize ?? 0) >= Self.baseSize)
+        #expect(bracketColor == .gray)
     }
 
-    @Test("Bullet-list prefix collapses when markers are hidden")
-    func hiddenBulletPrefix() {
+    @Test("Bullet-list prefix stays visible but syntax-coloured in rich mode")
+    func hiddenModeKeepsBulletMarker() {
         let input = "- one"
         let result = Self.makeHidingHighlighter().highlight(input)
         let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
-        let bodyLocation = (input as NSString).range(of: "one").location
-        let bodyFont = result.attribute(.font, at: bodyLocation, effectiveRange: nil) as? UIFont
-        #expect((prefixFont?.pointSize ?? 99) < 1)
-        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+        let prefixColor = result.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        #expect((prefixFont?.pointSize ?? 0) >= Self.baseSize)
+        #expect(prefixColor == .gray)
     }
 
     @Test("Link URL tail collapses, title stays visible")
