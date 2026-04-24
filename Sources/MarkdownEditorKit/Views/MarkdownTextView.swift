@@ -1,0 +1,237 @@
+//
+//  MarkdownTextView.swift
+//  MarkdownEditorKit
+//
+//  Created by Rouzbeh Abadi on 2026-04-24.
+//
+
+import SwiftUI
+import UIKit
+
+/// Bridges a `UITextView` into SwiftUI for ``MarkdownEditor``.
+///
+/// The view manages three concerns:
+///
+/// 1. Two-way binding between the editor's text and the underlying text
+///    view, with an additional selection binding so toolbar actions can
+///    operate on the caret / highlighted range.
+/// 2. Syntax highlighting via ``MarkdownSyntaxHighlighter``, re-applied
+///    after every edit.
+/// 3. An `inputAccessoryView` hosting a ``MarkdownToolbar``, so formatting
+///    buttons appear above the keyboard while the user is editing.
+///
+/// Changes to the ``MarkdownEditorConfiguration`` — fonts, colors, layout
+/// style, toolbar visibility, or the enabled action set — are picked up
+/// live: when the host passes a new configuration, the existing text view
+/// re-syncs its appearance and reinstalls its accessory toolbar, so
+/// runtime theme changes take effect without re-creating the editor.
+///
+/// This type is intentionally internal: users interact with
+/// ``MarkdownEditor`` instead, which composes this view with a secondary
+/// toolbar shown when the keyboard is dismissed.
+struct MarkdownTextView: UIViewRepresentable {
+
+    @Binding var text: String
+    @Binding var selection: NSRange
+    @Binding var isEditing: Bool
+    let configuration: MarkdownEditorConfiguration
+
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.alwaysBounceVertical = true
+        textView.allowsEditingTextAttributes = false
+        textView.autocapitalizationType = .sentences
+        textView.autocorrectionType = .default
+        textView.smartDashesType = .no
+        textView.smartQuotesType = .no
+        textView.smartInsertDeleteType = .no
+        textView.keyboardDismissMode = .interactive
+
+        context.coordinator.textView = textView
+        context.coordinator.applyConfiguration(to: textView)
+        textView.text = text
+        context.coordinator.applyHighlightingIfNeeded()
+        return textView
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        context.coordinator.parent = self
+
+        let configurationChanged = context.coordinator.syncConfigurationIfNeeded(to: uiView)
+
+        var textChanged = false
+        if uiView.text != text {
+            let previous = uiView.selectedRange
+            uiView.text = text
+            uiView.selectedRange = MarkdownFormatter.clamp(previous, length: (text as NSString).length)
+            textChanged = true
+        }
+
+        if configurationChanged || textChanged {
+            context.coordinator.applyHighlightingIfNeeded()
+        }
+
+        let desired = MarkdownFormatter.clamp(selection, length: (uiView.text as NSString).length)
+        if !NSEqualRanges(uiView.selectedRange, desired) {
+            uiView.selectedRange = desired
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    /// Manages the UITextView delegate callbacks, highlighting, and the
+    /// hosted input-accessory toolbar.
+    @MainActor
+    final class Coordinator: NSObject, UITextViewDelegate {
+
+        var parent: MarkdownTextView
+        weak var textView: UITextView?
+
+        private var accessoryHost: UIHostingController<MarkdownToolbar>?
+        private var lastConfiguration: MarkdownEditorConfiguration?
+        private var isApplyingHighlighting = false
+
+        init(parent: MarkdownTextView) {
+            self.parent = parent
+        }
+
+        // MARK: Configuration
+
+        /// Applies the current configuration to `uiView` unconditionally.
+        ///
+        /// Used at creation time, before any diff baseline exists.
+        func applyConfiguration(to uiView: UITextView) {
+            let config = parent.configuration
+            uiView.font = config.font
+            uiView.textColor = config.textColor
+            uiView.backgroundColor = config.backgroundColor
+            uiView.textContainerInset = config.style.textView.contentInsets
+            installAccessoryIfNeeded()
+            lastConfiguration = config
+        }
+
+        /// Re-applies the configuration when any visible property has
+        /// changed since the last sync.
+        ///
+        /// - Returns: `true` if the configuration changed and the caller
+        ///   should re-run syntax highlighting.
+        @discardableResult
+        func syncConfigurationIfNeeded(to uiView: UITextView) -> Bool {
+            let config = parent.configuration
+            guard lastConfiguration != config else { return false }
+            let previous = lastConfiguration
+            lastConfiguration = config
+
+            uiView.font = config.font
+            uiView.textColor = config.textColor
+            uiView.backgroundColor = config.backgroundColor
+            uiView.textContainerInset = config.style.textView.contentInsets
+
+            let toolbarInvalidated = previous?.showsToolbar != config.showsToolbar
+                || previous?.enabledActions != config.enabledActions
+                || previous?.style.toolbar != config.style.toolbar
+            if toolbarInvalidated {
+                installAccessoryIfNeeded()
+            }
+            return true
+        }
+
+        // MARK: Input accessory
+
+        func installAccessoryIfNeeded() {
+            guard let textView else { return }
+
+            guard parent.configuration.showsToolbar else {
+                textView.inputAccessoryView = nil
+                accessoryHost = nil
+                textView.reloadInputViews()
+                return
+            }
+
+            let toolbar = MarkdownToolbar(actions: parent.configuration.enabledActions,
+                                          style: parent.configuration.style,
+                                          onAction: { [weak self] action in
+                                              self?.perform(action)
+                                          })
+            let host = AccessoryHostingController(rootView: toolbar)
+            host.view.backgroundColor = .clear
+            host.view.autoresizingMask = [.flexibleWidth]
+            let width = UIScreen.main.bounds.width
+            host.view.frame = CGRect(x: 0, y: 0, width: width, height: parent.configuration.style.toolbar.height)
+            textView.inputAccessoryView = host.view
+            accessoryHost = host
+            textView.reloadInputViews()
+        }
+
+        // MARK: Formatting
+
+        func perform(_ action: MarkdownAction) {
+            guard let textView else { return }
+            let result = MarkdownFormatter.apply(action,
+                                                 to: textView.text ?? "",
+                                                 in: textView.selectedRange)
+            textView.text = result.text
+            textView.selectedRange = result.selection
+            parent.text = result.text
+            parent.selection = result.selection
+            applyHighlightingIfNeeded()
+        }
+
+        // MARK: Highlighting
+
+        func applyHighlightingIfNeeded() {
+            guard parent.configuration.highlightsSyntax, let textView else { return }
+            isApplyingHighlighting = true
+            defer { isApplyingHighlighting = false }
+
+            let style = MarkdownSyntaxHighlighter.Style(bodyFont: parent.configuration.font,
+                                                        monospacedFont: parent.configuration.monospacedFont,
+                                                        textColor: parent.configuration.textColor,
+                                                        syntaxColor: parent.configuration.syntaxColor)
+            let highlighter = MarkdownSyntaxHighlighter(style: style)
+            let selected = textView.selectedRange
+            let attributed = highlighter.highlight(textView.text ?? "")
+            textView.attributedText = attributed
+            textView.selectedRange = MarkdownFormatter.clamp(selected,
+                                                             length: (textView.text as NSString).length)
+            textView.typingAttributes = [
+                .font: parent.configuration.font,
+                .foregroundColor: parent.configuration.textColor,
+            ]
+        }
+
+        // MARK: UITextViewDelegate
+
+        func textViewDidChange(_ textView: UITextView) {
+            guard !isApplyingHighlighting else { return }
+            parent.text = textView.text
+            parent.selection = textView.selectedRange
+            applyHighlightingIfNeeded()
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isApplyingHighlighting else { return }
+            if !NSEqualRanges(parent.selection, textView.selectedRange) {
+                parent.selection = textView.selectedRange
+            }
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            parent.isEditing = true
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            parent.isEditing = false
+        }
+    }
+
+    /// A hosting controller that refuses first-responder status so hosting
+    /// the SwiftUI toolbar as an `inputAccessoryView` never steals the
+    /// keyboard focus from the text view.
+    private final class AccessoryHostingController<Content: View>: UIHostingController<Content> {
+        override var canBecomeFirstResponder: Bool { false }
+    }
+}
