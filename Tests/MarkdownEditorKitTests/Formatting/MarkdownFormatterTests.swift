@@ -141,6 +141,85 @@ struct MarkdownFormatterTests {
         #expect(result.text == "one\ntwo")
     }
 
+    // MARK: - Task list
+
+    @Test("Task list prefixes a line with '- [ ] '")
+    func taskListAddsPrefix() {
+        let result = MarkdownFormatter.apply(.taskList,
+                                             to: "Buy milk",
+                                             in: NSRange(location: 0, length: 0))
+        #expect(result.text == "- [ ] Buy milk")
+    }
+
+    @Test("Task list toggles off when every line is a task item")
+    func taskListToggles() {
+        let text = "- [ ] one\n- [x] two"
+        let selection = NSRange(location: 0, length: (text as NSString).length)
+        let result = MarkdownFormatter.apply(.taskList, to: text, in: selection)
+        #expect(result.text == "one\ntwo")
+    }
+
+    @Test("Task list prefixes each line of a multi-line selection")
+    func taskListMultiline() {
+        let text = "one\ntwo"
+        let selection = NSRange(location: 0, length: (text as NSString).length)
+        let result = MarkdownFormatter.apply(.taskList, to: text, in: selection)
+        #expect(result.text == "- [ ] one\n- [ ] two")
+    }
+
+    // MARK: - Caret placement for block prefixes
+
+    @Test("Heading on an empty line leaves the caret after the prefix, not selecting it")
+    func headingOnEmptyLineKeepsCaret() {
+        let result = MarkdownFormatter.apply(.heading(level: 2),
+                                             to: "",
+                                             in: NSRange(location: 0, length: 0))
+        #expect(result.text == "## ")
+        // Caret, not selection — typing a character after this should append
+        // to "## " rather than replace it.
+        #expect(result.selection.length == 0)
+        #expect(result.selection.location == 3)
+    }
+
+    @Test("Bullet list on an empty line leaves the caret after the prefix")
+    func bulletListOnEmptyLineKeepsCaret() {
+        let result = MarkdownFormatter.apply(.bulletList,
+                                             to: "",
+                                             in: NSRange(location: 0, length: 0))
+        #expect(result.text == "- ")
+        #expect(result.selection.length == 0)
+        #expect(result.selection.location == 2)
+    }
+
+    @Test("Task list on an empty line leaves the caret after the prefix")
+    func taskListOnEmptyLineKeepsCaret() {
+        let result = MarkdownFormatter.apply(.taskList,
+                                             to: "",
+                                             in: NSRange(location: 0, length: 0))
+        #expect(result.text == "- [ ] ")
+        #expect(result.selection.length == 0)
+        #expect(result.selection.location == 6)
+    }
+
+    @Test("Heading on a non-empty line shifts the caret by the prefix length")
+    func headingMidLineShiftsCaret() {
+        // Caret at position 3 ("Hel|lo") → after "## Hello", caret at 6.
+        let result = MarkdownFormatter.apply(.heading(level: 1),
+                                             to: "Hello",
+                                             in: NSRange(location: 3, length: 0))
+        #expect(result.text == "# Hello")
+        #expect(result.selection == NSRange(location: 5, length: 0))
+    }
+
+    @Test("Image-picker action returns the input unchanged")
+    func imagePickerIsNoOp() {
+        let input = "Hello"
+        let selection = NSRange(location: 2, length: 3)
+        let result = MarkdownFormatter.apply(.imagePicker, to: input, in: selection)
+        #expect(result.text == input)
+        #expect(result.selection == selection)
+    }
+
     // MARK: - Quote
 
     @Test("Quote prefixes the current line with '> '")

@@ -37,7 +37,9 @@ struct SystemImageTests {
         #expect(SystemImage.italic.symbolName == "italic")
         #expect(SystemImage.heading1.symbolName == "1.square")
         #expect(SystemImage.bulletList.symbolName == "list.bullet")
+        #expect(SystemImage.taskList.symbolName == "checklist")
         #expect(SystemImage.inlineCode.symbolName == "chevron.left.forwardslash.chevron.right")
+        #expect(SystemImage.imagePicker.symbolName == "photo.badge.plus")
         #expect(SystemImage.quote.symbolName == "text.quote")
     }
 }

@@ -21,10 +21,12 @@ struct MarkdownActionTests {
         .heading(level: 6),
         .bulletList,
         .numberedList,
+        .taskList,
         .inlineCode,
         .codeBlock,
         .link,
         .image,
+        .imagePicker,
         .quote,
         .horizontalRule,
     ]
