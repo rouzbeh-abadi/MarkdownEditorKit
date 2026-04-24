@@ -60,7 +60,9 @@ public struct MarkdownToolbar: View {
             .padding(.vertical, style.toolbar.verticalPadding)
         }
         .frame(height: style.toolbar.height)
-        .background(.bar)
+        .background(Material.bar, in: RoundedRectangle(cornerRadius: style.toolbar.cornerRadius, style: .continuous))
+        .padding(.horizontal, style.toolbar.outerHorizontalPadding)
+        .padding(.vertical, style.toolbar.outerVerticalPadding)
     }
 }
 

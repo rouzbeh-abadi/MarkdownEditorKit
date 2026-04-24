@@ -35,6 +35,8 @@ struct MarkdownTextView: UIViewRepresentable {
     @Binding var selection: NSRange
     @Binding var isEditing: Bool
     let configuration: MarkdownEditorConfiguration
+    let resolvedActions: [MarkdownAction]
+    let onImagePick: (() -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -91,7 +93,14 @@ struct MarkdownTextView: UIViewRepresentable {
         weak var textView: UITextView?
 
         private var accessoryHost: UIHostingController<MarkdownToolbar>?
-        private var lastConfiguration: MarkdownEditorConfiguration?
+        private var lastActions: [MarkdownAction]?
+        private var lastShowsToolbar: Bool?
+        private var lastToolbarStyle: Style.Toolbar?
+        private var lastFont: UIFont?
+        private var lastTextColor: UIColor?
+        private var lastBackground: UIColor?
+        private var lastContentInsets: UIEdgeInsets?
+        private var lastHandlesImagePick: Bool?
         private var isApplyingHighlighting = false
 
         init(parent: MarkdownTextView) {
@@ -110,7 +119,14 @@ struct MarkdownTextView: UIViewRepresentable {
             uiView.backgroundColor = config.backgroundColor
             uiView.textContainerInset = config.style.textView.contentInsets
             installAccessoryIfNeeded()
-            lastConfiguration = config
+            lastFont = config.font
+            lastTextColor = config.textColor
+            lastBackground = config.backgroundColor
+            lastContentInsets = config.style.textView.contentInsets
+            lastActions = parent.resolvedActions
+            lastShowsToolbar = config.showsToolbar
+            lastToolbarStyle = config.style.toolbar
+            lastHandlesImagePick = parent.onImagePick != nil
         }
 
         /// Re-applies the configuration when any visible property has
@@ -121,22 +137,38 @@ struct MarkdownTextView: UIViewRepresentable {
         @discardableResult
         func syncConfigurationIfNeeded(to uiView: UITextView) -> Bool {
             let config = parent.configuration
-            guard lastConfiguration != config else { return false }
-            let previous = lastConfiguration
-            lastConfiguration = config
+            let actions = parent.resolvedActions
+            let handlesImagePick = parent.onImagePick != nil
+
+            let appearanceChanged = lastFont != config.font
+                || lastTextColor != config.textColor
+                || lastBackground != config.backgroundColor
+                || lastContentInsets != config.style.textView.contentInsets
+            let toolbarChanged = lastShowsToolbar != config.showsToolbar
+                || lastActions != actions
+                || lastToolbarStyle != config.style.toolbar
+                || lastHandlesImagePick != handlesImagePick
+
+            guard appearanceChanged || toolbarChanged else { return false }
 
             uiView.font = config.font
             uiView.textColor = config.textColor
             uiView.backgroundColor = config.backgroundColor
             uiView.textContainerInset = config.style.textView.contentInsets
 
-            let toolbarInvalidated = previous?.showsToolbar != config.showsToolbar
-                || previous?.enabledActions != config.enabledActions
-                || previous?.style.toolbar != config.style.toolbar
-            if toolbarInvalidated {
+            if toolbarChanged {
                 installAccessoryIfNeeded()
             }
-            return true
+
+            lastFont = config.font
+            lastTextColor = config.textColor
+            lastBackground = config.backgroundColor
+            lastContentInsets = config.style.textView.contentInsets
+            lastActions = actions
+            lastShowsToolbar = config.showsToolbar
+            lastToolbarStyle = config.style.toolbar
+            lastHandlesImagePick = handlesImagePick
+            return appearanceChanged
         }
 
         // MARK: Input accessory
@@ -151,7 +183,7 @@ struct MarkdownTextView: UIViewRepresentable {
                 return
             }
 
-            let toolbar = MarkdownToolbar(actions: parent.configuration.enabledActions,
+            let toolbar = MarkdownToolbar(actions: parent.resolvedActions,
                                           style: parent.configuration.style,
                                           onAction: { [weak self] action in
                                               self?.perform(action)
@@ -160,7 +192,9 @@ struct MarkdownTextView: UIViewRepresentable {
             host.view.backgroundColor = .clear
             host.view.autoresizingMask = [.flexibleWidth]
             let width = UIScreen.main.bounds.width
-            host.view.frame = CGRect(x: 0, y: 0, width: width, height: parent.configuration.style.toolbar.height)
+            let toolbarStyle = parent.configuration.style.toolbar
+            let height = toolbarStyle.height + 2 * toolbarStyle.outerVerticalPadding
+            host.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
             textView.inputAccessoryView = host.view
             accessoryHost = host
             textView.reloadInputViews()
@@ -169,6 +203,10 @@ struct MarkdownTextView: UIViewRepresentable {
         // MARK: Formatting
 
         func perform(_ action: MarkdownAction) {
+            if action == .imagePicker {
+                parent.onImagePick?()
+                return
+            }
             guard let textView else { return }
             let result = MarkdownFormatter.apply(action,
                                                  to: textView.text ?? "",
