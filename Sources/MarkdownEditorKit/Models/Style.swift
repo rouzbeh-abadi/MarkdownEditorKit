@@ -94,6 +94,21 @@ extension Style {
         /// Vertical padding applied to the toolbar's scroll content.
         public var verticalPadding: CGFloat
 
+        /// Horizontal inset between the toolbar strip and the edges of
+        /// its host container.
+        ///
+        /// The toolbar uses this inset to sit inside the keyboard
+        /// accessory area or the editor's footer with a visible margin,
+        /// rather than touching the screen edges.
+        public var outerHorizontalPadding: CGFloat
+
+        /// Vertical inset between the toolbar strip and the edges of
+        /// its host container.
+        public var outerVerticalPadding: CGFloat
+
+        /// Corner radius applied to the toolbar's background pill.
+        public var cornerRadius: CGFloat
+
         /// Width and height of a single toolbar button's hit area, in
         /// points.
         public var buttonSize: CGFloat
@@ -108,10 +123,13 @@ extension Style {
         ///
         /// All parameters have defaults chosen to match the stock
         /// MarkdownEditorKit look.
-        public init(height: CGFloat = 44,
+        public init(height: CGFloat = 52,
                     buttonSpacing: CGFloat = 2,
                     horizontalPadding: CGFloat = 8,
                     verticalPadding: CGFloat = 4,
+                    outerHorizontalPadding: CGFloat = 12,
+                    outerVerticalPadding: CGFloat = 6,
+                    cornerRadius: CGFloat = 12,
                     buttonSize: CGFloat = 36,
                     iconSize: CGFloat = 16,
                     iconWeight: Font.Weight = .medium) {
@@ -119,6 +137,9 @@ extension Style {
             self.buttonSpacing = buttonSpacing
             self.horizontalPadding = horizontalPadding
             self.verticalPadding = verticalPadding
+            self.outerHorizontalPadding = outerHorizontalPadding
+            self.outerVerticalPadding = outerVerticalPadding
+            self.cornerRadius = cornerRadius
             self.buttonSize = buttonSize
             self.iconSize = iconSize
             self.iconWeight = iconWeight

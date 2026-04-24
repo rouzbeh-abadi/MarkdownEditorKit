@@ -70,6 +70,8 @@ public enum MarkdownFormatter {
             prefixBlock(in: text, selection: selection, prefix: "- ")
         case .numberedList:
             prefixNumberedBlock(in: text, selection: selection)
+        case .taskList:
+            prefixTaskBlock(in: text, selection: selection)
         case .quote:
             prefixBlock(in: text, selection: selection, prefix: "> ")
         case .codeBlock:
@@ -78,6 +80,12 @@ public enum MarkdownFormatter {
             insertLink(in: text, selection: selection)
         case .image:
             insertImage(in: text, selection: selection)
+        case .imagePicker:
+            // The picker action is handled by the host via its
+            // `onImagePick` callback; the formatter never mutates the
+            // text for this action. Returning the input unchanged keeps
+            // the method total.
+            Result(text: text, selection: clamp(selection, length: (text as NSString).length))
         case .horizontalRule:
             insertHorizontalRule(in: text, selection: selection)
         }
@@ -167,6 +175,7 @@ public enum MarkdownFormatter {
         let endsInNewline = block.hasSuffix("\n")
         let body = endsInNewline ? String(block.dropLast()) : block
         let lines = body.components(separatedBy: "\n")
+        let firstLineHadPrefix = lines.first?.hasPrefix(prefix) ?? false
 
         let updated = lines.map { line -> String in
             if line.hasPrefix(prefix) {
@@ -180,8 +189,11 @@ public enum MarkdownFormatter {
         let newText = ns.replacingCharacters(in: lineRange, with: replacement)
 
         let updatedLength = (updated as NSString).length
-        return Result(text: newText,
-                      selection: NSRange(location: lineRange.location, length: updatedLength))
+        let newSelection = selectionForBlockEdit(originalSelection: clamped,
+                                                  lineRange: lineRange,
+                                                  updatedLength: updatedLength,
+                                                  shift: firstLineHadPrefix ? -(prefix as NSString).length : (prefix as NSString).length)
+        return Result(text: newText, selection: newSelection)
     }
 
     static func prefixNumberedBlock(in text: String,
@@ -201,22 +213,108 @@ public enum MarkdownFormatter {
         }
 
         let updatedLines: [String]
+        let firstLineShift: Int
         if allNumbered {
             updatedLines = lines.map { line in
                 line.replacing(numberedPrefix, with: "")
             }
+            let firstOriginalLen = ((lines.first ?? "") as NSString).length
+            let firstUpdatedLen = ((updatedLines.first ?? "") as NSString).length
+            firstLineShift = firstUpdatedLen - firstOriginalLen
         } else {
             updatedLines = lines.enumerated().map { offset, line in
                 "\(offset + 1). \(line)"
             }
+            firstLineShift = ("1. " as NSString).length
         }
 
         let updated = updatedLines.joined(separator: "\n")
         let replacement = endsInNewline ? updated + "\n" : updated
         let newText = ns.replacingCharacters(in: lineRange, with: replacement)
         let updatedLength = (updated as NSString).length
-        return Result(text: newText,
-                      selection: NSRange(location: lineRange.location, length: updatedLength))
+        let newSelection = selectionForBlockEdit(originalSelection: clamped,
+                                                  lineRange: lineRange,
+                                                  updatedLength: updatedLength,
+                                                  shift: firstLineShift)
+        return Result(text: newText, selection: newSelection)
+    }
+
+    // MARK: - Task list
+
+    /// Prefixes each selected line with `- [ ] ` to produce a GitHub-flavoured
+    /// Markdown task list, or removes the marker when every selected line is
+    /// already a task item.
+    ///
+    /// Lines that are already task items — either checked (`- [x] `) or
+    /// unchecked (`- [ ] `) — are recognised and stripped. Lines that are
+    /// plain bullets (`- `) are *not* treated as task items; the action adds
+    /// a separate `- [ ] ` prefix in front of them.
+    static func prefixTaskBlock(in text: String,
+                                selection: NSRange) -> Result {
+        let ns = text as NSString
+        let clamped = clamp(selection, length: ns.length)
+        let lineRange = ns.lineRange(for: clamped)
+        let block = ns.substring(with: lineRange)
+
+        let endsInNewline = block.hasSuffix("\n")
+        let body = endsInNewline ? String(block.dropLast()) : block
+        let lines = body.components(separatedBy: "\n")
+
+        let taskPattern = #/^- \[[ xX]\] /#
+        let allTasks = !lines.isEmpty && lines.allSatisfy { line in
+            line.firstMatch(of: taskPattern) != nil
+        }
+
+        let updatedLines: [String]
+        let firstLineShift: Int
+        if allTasks {
+            updatedLines = lines.map { line in
+                line.replacing(taskPattern, with: "")
+            }
+            let firstOriginalLen = ((lines.first ?? "") as NSString).length
+            let firstUpdatedLen = ((updatedLines.first ?? "") as NSString).length
+            firstLineShift = firstUpdatedLen - firstOriginalLen
+        } else {
+            updatedLines = lines.map { "- [ ] \($0)" }
+            firstLineShift = ("- [ ] " as NSString).length
+        }
+
+        let updated = updatedLines.joined(separator: "\n")
+        let replacement = endsInNewline ? updated + "\n" : updated
+        let newText = ns.replacingCharacters(in: lineRange, with: replacement)
+        let updatedLength = (updated as NSString).length
+        let newSelection = selectionForBlockEdit(originalSelection: clamped,
+                                                  lineRange: lineRange,
+                                                  updatedLength: updatedLength,
+                                                  shift: firstLineShift)
+        return Result(text: newText, selection: newSelection)
+    }
+
+    // MARK: - Block selection helper
+
+    /// Computes the post-edit selection for a block-level prefix operation.
+    ///
+    /// For caret inputs (zero-length selections) the caret is shifted by
+    /// `shift` — the same amount the first line grew or shrank — so the
+    /// cursor ends up at the same logical position within the edited line.
+    /// This avoids the "the inserted prefix is selected and typing replaces
+    /// it" bug that plagues naive block-prefix implementations on empty
+    /// lines.
+    ///
+    /// For range inputs the selection is expanded to cover the full updated
+    /// block, which matches what editors like iA Writer and Typora do when
+    /// you tap a list-ish action while a paragraph is selected.
+    static func selectionForBlockEdit(originalSelection: NSRange,
+                                      lineRange: NSRange,
+                                      updatedLength: Int,
+                                      shift: Int) -> NSRange {
+        if originalSelection.length == 0 {
+            let upperBound = lineRange.location + updatedLength
+            let shifted = originalSelection.location + shift
+            let clamped = min(max(shifted, lineRange.location), upperBound)
+            return NSRange(location: clamped, length: 0)
+        }
+        return NSRange(location: lineRange.location, length: updatedLength)
     }
 
     // MARK: - Code block

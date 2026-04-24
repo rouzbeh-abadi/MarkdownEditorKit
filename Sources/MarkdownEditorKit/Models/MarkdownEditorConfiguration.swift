@@ -103,7 +103,10 @@ public struct MarkdownEditorConfiguration: Equatable {
     /// The default set of actions surfaced in the toolbar.
     ///
     /// This list covers the Markdown constructs encountered in typical writing:
-    /// emphasis, headings, lists, inline and fenced code, quotes, and links.
+    /// emphasis, headings, lists (bulleted, numbered, task), inline and fenced
+    /// code, quotes, and links. The image-picker action is intentionally left
+    /// out of the defaults — surface it explicitly when your app passes an
+    /// `onImagePick` handler to ``MarkdownEditor``.
     public static let defaultActions: [MarkdownAction] = [
         .bold,
         .italic,
@@ -112,6 +115,7 @@ public struct MarkdownEditorConfiguration: Equatable {
         .heading(level: 2),
         .bulletList,
         .numberedList,
+        .taskList,
         .inlineCode,
         .codeBlock,
         .link,

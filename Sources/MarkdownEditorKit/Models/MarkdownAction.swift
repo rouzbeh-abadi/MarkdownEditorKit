@@ -41,6 +41,13 @@ public enum MarkdownAction: Hashable, Sendable {
     /// produce an ordered list.
     case numberedList
 
+    /// Prefixes each selected line with `- [ ] ` to produce an unchecked
+    /// GitHub-flavoured Markdown task list item.
+    ///
+    /// Re-applying the action on lines that are already task items removes
+    /// the marker, so the button behaves as a toggle.
+    case taskList
+
     /// Wraps the current selection in single backticks for inline code.
     case inlineCode
 
@@ -55,6 +62,17 @@ public enum MarkdownAction: Hashable, Sendable {
     /// Inserts a Markdown image reference (`![alt](url)`) around the current
     /// selection, or at the cursor if the selection is empty.
     case image
+
+    /// Invokes the host app's image-picking handler rather than inserting
+    /// Markdown syntax.
+    ///
+    /// Surface this action when the editor should delegate image insertion
+    /// to the surrounding app — for example to open a photo picker, upload
+    /// the chosen asset, and insert a custom reference. The action has no
+    /// effect unless the host supplies an `onImagePick` handler to
+    /// ``MarkdownEditor``; when no handler is registered the button is
+    /// hidden from the toolbar.
+    case imagePicker
 
     /// Prefixes each selected line with `> ` to produce a block quote.
     case quote
@@ -77,10 +95,12 @@ extension MarkdownAction: Identifiable {
         case .heading(let level): "heading-\(level)"
         case .bulletList: "bulletList"
         case .numberedList: "numberedList"
+        case .taskList: "taskList"
         case .inlineCode: "inlineCode"
         case .codeBlock: "codeBlock"
         case .link: "link"
         case .image: "image"
+        case .imagePicker: "imagePicker"
         case .quote: "quote"
         case .horizontalRule: "horizontalRule"
         }
@@ -103,10 +123,12 @@ extension MarkdownAction {
         case .heading(let level): "Heading \(level)"
         case .bulletList: "Bulleted List"
         case .numberedList: "Numbered List"
+        case .taskList: "Task List"
         case .inlineCode: "Inline Code"
         case .codeBlock: "Code Block"
         case .link: "Link"
         case .image: "Image"
+        case .imagePicker: "Pick Image"
         case .quote: "Quote"
         case .horizontalRule: "Horizontal Rule"
         }
@@ -136,10 +158,12 @@ extension MarkdownAction {
             }
         case .bulletList: .bulletList
         case .numberedList: .numberedList
+        case .taskList: .taskList
         case .inlineCode: .inlineCode
         case .codeBlock: .codeBlock
         case .link: .link
         case .image: .image
+        case .imagePicker: .imagePicker
         case .quote: .quote
         case .horizontalRule: .horizontalRule
         }

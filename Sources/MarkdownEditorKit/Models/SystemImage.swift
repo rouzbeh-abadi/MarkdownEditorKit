@@ -44,6 +44,7 @@ public enum SystemImage: String, CaseIterable, Sendable {
     // MARK: Lists
     case bulletList = "list.bullet"
     case numberedList = "list.number"
+    case taskList = "checklist"
 
     // MARK: Code
     case inlineCode = "chevron.left.forwardslash.chevron.right"
@@ -52,6 +53,7 @@ public enum SystemImage: String, CaseIterable, Sendable {
     // MARK: Media & structure
     case link
     case image = "photo"
+    case imagePicker = "photo.badge.plus"
     case quote = "text.quote"
     case horizontalRule = "minus"
 
