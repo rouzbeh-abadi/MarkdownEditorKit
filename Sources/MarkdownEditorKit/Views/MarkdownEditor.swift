@@ -67,6 +67,8 @@ public struct MarkdownEditor: View {
 
     @State private var selection: NSRange = NSRange(location: 0, length: 0)
     @State private var isEditing: Bool = false
+    @State private var activeActions: Set<MarkdownAction> = []
+    @State private var pendingRichAction: MarkdownAction? = nil
 
     /// Creates a Markdown editor.
     ///
@@ -97,19 +99,36 @@ public struct MarkdownEditor: View {
     public var body: some View {
         VStack(spacing: 0) {
             switch mode {
-            case .source, .rich:
+            case .source:
                 MarkdownTextView(text: $text,
                                  selection: $selection,
                                  isEditing: $isEditing,
+                                 activeActions: $activeActions,
                                  configuration: configuration,
                                  resolvedActions: resolvedActions,
-                                 hidesMarkers: mode == .rich,
+                                 hidesMarkers: false,
                                  onImagePick: onImagePick)
                 if configuration.showsToolbar && !isEditing {
                     Divider()
                     MarkdownToolbar(actions: resolvedActions,
                                     style: configuration.style,
+                                    activeActions: activeActions,
                                     onAction: performAction)
+                }
+            case .rich:
+                MarkdownRichWebView(text: $text,
+                                    isEditing: $isEditing,
+                                    activeActions: $activeActions,
+                                    pendingAction: $pendingRichAction,
+                                    configuration: configuration,
+                                    resolvedActions: resolvedActions,
+                                    onImagePick: onImagePick)
+                if configuration.showsToolbar {
+                    Divider()
+                    MarkdownToolbar(actions: resolvedActions,
+                                    style: configuration.style,
+                                    activeActions: activeActions,
+                                    onAction: performRichAction)
                 }
             case .preview:
                 MarkdownPreview(text: text, configuration: configuration)
@@ -137,6 +156,14 @@ public struct MarkdownEditor: View {
         let result = MarkdownFormatter.apply(action, to: text, in: selection)
         text = result.text
         selection = result.selection
+    }
+
+    private func performRichAction(_ action: MarkdownAction) {
+        if action == .imagePicker {
+            onImagePick?()
+            return
+        }
+        pendingRichAction = action
     }
 }
 

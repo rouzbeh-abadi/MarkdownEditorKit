@@ -116,9 +116,6 @@ public struct MarkdownEditorConfiguration: Equatable {
         .bulletList,
         .numberedList,
         .taskList,
-        .inlineCode,
-        .codeBlock,
-        .link,
         .quote,
         .horizontalRule,
     ]

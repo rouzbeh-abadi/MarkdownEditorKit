@@ -30,6 +30,7 @@ public struct MarkdownToolbar: View {
 
     private let actions: [MarkdownAction]
     private let style: Style
+    private let activeActions: Set<MarkdownAction>
     private let onAction: (MarkdownAction) -> Void
 
     /// Creates a toolbar.
@@ -38,12 +39,16 @@ public struct MarkdownToolbar: View {
     ///   - actions: The actions to display, in the order they appear.
     ///   - style: Layout metrics for the toolbar. Defaults to
     ///     ``Style/default``.
+    ///   - activeActions: The set of actions currently active at the cursor
+    ///     position. Active buttons are tinted with the accent color.
     ///   - onAction: A closure invoked with the tapped action.
     public init(actions: [MarkdownAction],
                 style: Style = .default,
+                activeActions: Set<MarkdownAction> = [],
                 onAction: @escaping (MarkdownAction) -> Void) {
         self.actions = actions
         self.style = style
+        self.activeActions = activeActions
         self.onAction = onAction
     }
 
@@ -51,7 +56,9 @@ public struct MarkdownToolbar: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: style.toolbar.buttonSpacing) {
                 ForEach(actions) { action in
-                    MarkdownToolbarButton(action: action, style: style) {
+                    MarkdownToolbarButton(action: action,
+                                          style: style,
+                                          isActive: activeActions.contains(action)) {
                         onAction(action)
                     }
                 }
@@ -71,6 +78,7 @@ private struct MarkdownToolbarButton: View {
 
     let action: MarkdownAction
     let style: Style
+    let isActive: Bool
     let onTap: () -> Void
 
     var body: some View {
@@ -78,9 +86,14 @@ private struct MarkdownToolbarButton: View {
             action.systemImage.image
                 .font(.system(size: style.toolbar.iconSize, weight: style.toolbar.iconWeight))
                 .frame(width: style.toolbar.buttonSize, height: style.toolbar.buttonSize)
+                .background(
+                    isActive ? Color.accentColor.opacity(0.15) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .foregroundStyle(isActive ? Color.accentColor : Color.primary)
         .accessibilityLabel(action.title)
     }
 }

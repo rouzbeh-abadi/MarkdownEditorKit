@@ -34,6 +34,7 @@ struct MarkdownTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var selection: NSRange
     @Binding var isEditing: Bool
+    @Binding var activeActions: Set<MarkdownAction>
     let configuration: MarkdownEditorConfiguration
     let resolvedActions: [MarkdownAction]
     let hidesMarkers: Bool
@@ -123,6 +124,8 @@ struct MarkdownTextView: UIViewRepresentable {
             if let rich = uiView as? MarkdownRichTextView {
                 rich.drawsHorizontalRules = parent.hidesMarkers
                 rich.horizontalRuleColor = config.syntaxColor
+                rich.richBodyFont = config.font
+                rich.richTextColor = config.textColor
             }
             installAccessoryIfNeeded()
             lastFont = config.font
@@ -166,6 +169,8 @@ struct MarkdownTextView: UIViewRepresentable {
             if let rich = uiView as? MarkdownRichTextView {
                 rich.drawsHorizontalRules = parent.hidesMarkers
                 rich.horizontalRuleColor = config.syntaxColor
+                rich.richBodyFont = config.font
+                rich.richTextColor = config.textColor
             }
 
             if toolbarChanged {
@@ -279,12 +284,63 @@ struct MarkdownTextView: UIViewRepresentable {
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard !isApplyingHighlighting else { return }
             let newSelection = textView.selectedRange
+            let newActive = computeActiveActions(in: textView)
+            updateAccessoryActiveActions(newActive)
             deferToNextRunLoop { [weak self] in
                 guard let self else { return }
                 if !NSEqualRanges(self.parent.selection, newSelection) {
                     self.parent.selection = newSelection
                 }
+                if self.parent.activeActions != newActive {
+                    self.parent.activeActions = newActive
+                }
             }
+        }
+
+        private func computeActiveActions(in textView: UITextView) -> Set<MarkdownAction> {
+            let text = textView.text ?? ""
+            let nsText = text as NSString
+            let length = nsText.length
+            guard length > 0, let attributed = textView.attributedText else { return [] }
+
+            let pos = textView.selectedRange.location
+            let attrPos = pos > 0 ? min(pos - 1, length - 1) : 0
+            var active: Set<MarkdownAction> = []
+
+            let attrs = attributed.attributes(at: attrPos, effectiveRange: nil)
+            if let font = attrs[.font] as? UIFont {
+                let traits = font.fontDescriptor.symbolicTraits
+                if traits.contains(.traitBold) { active.insert(.bold) }
+                if traits.contains(.traitItalic) { active.insert(.italic) }
+            }
+            if attrs[.strikethroughStyle] != nil { active.insert(.strikethrough) }
+
+            let clampedPos = min(pos, length - 1)
+            let lineRange = nsText.lineRange(for: NSRange(location: clampedPos, length: 0))
+            let prefixLen = min(lineRange.length, 40)
+            if prefixLen > 0 {
+                let line = nsText.substring(with: NSRange(location: lineRange.location, length: prefixLen))
+                if line.hasPrefix("> ") { active.insert(.quote) }
+                if line.hasPrefix("- [ ] ") || line.hasPrefix("- [x] ") || line.hasPrefix("- [X] ") {
+                    active.insert(.taskList)
+                } else if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
+                    active.insert(.bulletList)
+                } else if let firstChar = line.first, firstChar.isNumber, line.contains(". ") {
+                    active.insert(.numberedList)
+                }
+            }
+
+            return active
+        }
+
+        private func updateAccessoryActiveActions(_ active: Set<MarkdownAction>) {
+            guard let accessoryHost else { return }
+            accessoryHost.rootView = MarkdownToolbar(actions: parent.resolvedActions,
+                                                      style: parent.configuration.style,
+                                                      activeActions: active,
+                                                      onAction: { [weak self] action in
+                                                          self?.perform(action)
+                                                      })
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
@@ -331,6 +387,14 @@ struct MarkdownTextView: UIViewRepresentable {
 /// hyphens would measure at a given font size.
 final class MarkdownRichTextView: UITextView {
 
+    /// The body font used when resetting typing attributes. Must match
+    /// `MarkdownEditorConfiguration.font` so new characters after hidden
+    /// markers inherit the correct size rather than the zero-size hidden font.
+    var richBodyFont: UIFont = .preferredFont(forTextStyle: .body)
+
+    /// The text color used when resetting typing attributes.
+    var richTextColor: UIColor = .label
+
     /// When `true`, paragraphs matching `^---$` are painted as a
     /// full-width overlay line. When `false`, the overlay is hidden.
     var drawsHorizontalRules: Bool = false {
@@ -363,6 +427,21 @@ final class MarkdownRichTextView: UITextView {
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         _ = overlay
+    }
+
+    /// Prevents UITextView from inheriting a zero-size font when the cursor
+    /// sits adjacent to a hidden marker character. Without this, pressing
+    /// Enter after `**bold**` would start the new line with an invisible font.
+    override var typingAttributes: [NSAttributedString.Key: Any] {
+        get {
+            var attrs = super.typingAttributes
+            if let font = attrs[.font] as? UIFont, font.pointSize < 1 {
+                attrs[.font] = richBodyFont
+                attrs[.foregroundColor] = richTextColor
+            }
+            return attrs
+        }
+        set { super.typingAttributes = newValue }
     }
 
     override func layoutSubviews() {
