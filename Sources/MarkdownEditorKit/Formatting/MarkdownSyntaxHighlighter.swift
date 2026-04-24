@@ -43,6 +43,13 @@ public struct MarkdownSyntaxHighlighter {
         /// The color applied to Markdown syntax characters.
         public var syntaxColor: UIColor
 
+        /// When `true`, Markdown syntax markers are collapsed to a
+        /// near-zero font size and rendered transparently, so the editor
+        /// shows only the rendered content while still editing the raw
+        /// Markdown source. Use this together with the highlighter's
+        /// other attributes to drive a WYSIWYG-style live edit.
+        public var hidesMarkers: Bool
+
         /// Creates a style.
         ///
         /// - Parameters:
@@ -50,14 +57,19 @@ public struct MarkdownSyntaxHighlighter {
         ///   - monospacedFont: Font used for inline code and fenced code blocks.
         ///   - textColor: Color applied to body text.
         ///   - syntaxColor: Color applied to Markdown syntax markers.
+        ///   - hidesMarkers: When `true`, Markdown syntax markers are
+        ///     collapsed so only rendered content is visible. Defaults to
+        ///     `false`.
         public init(bodyFont: UIFont,
                     monospacedFont: UIFont,
                     textColor: UIColor,
-                    syntaxColor: UIColor) {
+                    syntaxColor: UIColor,
+                    hidesMarkers: Bool = false) {
             self.bodyFont = bodyFont
             self.monospacedFont = monospacedFont
             self.textColor = textColor
             self.syntaxColor = syntaxColor
+            self.hidesMarkers = hidesMarkers
         }
     }
 
@@ -183,6 +195,99 @@ public struct MarkdownSyntaxHighlighter {
                                      ],
                                      range: range)
         }
+
+        if style.hidesMarkers {
+            for markerRange in markerRanges(for: kind, in: range, within: string) {
+                hide(range: markerRange, in: attributed)
+            }
+        }
+    }
+
+    // MARK: - Marker hiding
+
+    /// Collapses `range` visually so its glyphs take near-zero horizontal
+    /// space and are rendered transparently. The underlying characters
+    /// remain, so edits still round-trip through the raw Markdown source.
+    private func hide(range: NSRange, in attributed: NSMutableAttributedString) {
+        attributed.addAttributes([
+                                     .font: Self.hiddenFont,
+                                     .foregroundColor: UIColor.clear,
+                                 ],
+                                 range: range)
+    }
+
+    private static let hiddenFont = UIFont.systemFont(ofSize: 0.01)
+
+    /// Returns the sub-ranges of `range` that hold Markdown syntax markers
+    /// (the characters a renderer would strip), so they can be collapsed
+    /// in rich-edit mode.
+    private func markerRanges(for kind: RuleKind,
+                              in range: NSRange,
+                              within string: String) -> [NSRange] {
+        switch kind {
+        case .boldItalic:
+            return wrappingMarkers(in: range, openLength: 3, closeLength: 3)
+        case .bold, .strikethrough:
+            return wrappingMarkers(in: range, openLength: 2, closeLength: 2)
+        case .italic, .inlineCode:
+            return wrappingMarkers(in: range, openLength: 1, closeLength: 1)
+        case .heading:
+            let snippet = (string as NSString).substring(with: range)
+            let hashes = snippet.prefix { $0 == "#" }.count
+            let prefixLength = hashes + (snippet.dropFirst(hashes).first == " " ? 1 : 0)
+            return [NSRange(location: range.location, length: prefixLength)]
+        case .listMarker, .quote:
+            return [range]
+        case .link:
+            return linkMarkerRanges(in: range, within: string)
+        case .fencedCode:
+            return fencedCodeMarkerRanges(in: range, within: string)
+        }
+    }
+
+    private func wrappingMarkers(in range: NSRange,
+                                 openLength: Int,
+                                 closeLength: Int) -> [NSRange] {
+        guard range.length >= openLength + closeLength else { return [] }
+        let open = NSRange(location: range.location, length: openLength)
+        let close = NSRange(location: range.location + range.length - closeLength,
+                            length: closeLength)
+        return [open, close]
+    }
+
+    private func linkMarkerRanges(in range: NSRange, within string: String) -> [NSRange] {
+        // Match `[title](url)` — hide `[`, and the `](url)` tail.
+        let snippet = (string as NSString).substring(with: range) as NSString
+        let closeBracket = snippet.range(of: "](")
+        guard closeBracket.location != NSNotFound else { return [] }
+        let open = NSRange(location: range.location, length: 1)
+        let tailLocation = range.location + closeBracket.location
+        let tailLength = range.length - closeBracket.location
+        return [open, NSRange(location: tailLocation, length: tailLength)]
+    }
+
+    private func fencedCodeMarkerRanges(in range: NSRange, within string: String) -> [NSRange] {
+        // Hide the opening fence line and the closing fence line but keep the
+        // body visible and monospaced.
+        let snippet = (string as NSString).substring(with: range) as NSString
+        var markers: [NSRange] = []
+
+        let firstNewline = snippet.range(of: "\n")
+        if firstNewline.location != NSNotFound {
+            markers.append(NSRange(location: range.location, length: firstNewline.location + 1))
+        } else {
+            markers.append(range)
+            return markers
+        }
+
+        let trailingFence = snippet.range(of: "\n```", options: .backwards)
+        if trailingFence.location != NSNotFound {
+            let tailLocation = range.location + trailingFence.location
+            let tailLength = range.length - trailingFence.location
+            markers.append(NSRange(location: tailLocation, length: tailLength))
+        }
+
+        return markers
     }
 
     // MARK: - Font helpers

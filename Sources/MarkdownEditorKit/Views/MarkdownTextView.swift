@@ -36,6 +36,7 @@ struct MarkdownTextView: UIViewRepresentable {
     @Binding var isEditing: Bool
     let configuration: MarkdownEditorConfiguration
     let resolvedActions: [MarkdownAction]
+    let hidesMarkers: Bool
     let onImagePick: (() -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
@@ -101,6 +102,7 @@ struct MarkdownTextView: UIViewRepresentable {
         private var lastBackground: UIColor?
         private var lastContentInsets: UIEdgeInsets?
         private var lastHandlesImagePick: Bool?
+        private var lastHidesMarkers: Bool?
         private var isApplyingHighlighting = false
 
         init(parent: MarkdownTextView) {
@@ -127,6 +129,7 @@ struct MarkdownTextView: UIViewRepresentable {
             lastShowsToolbar = config.showsToolbar
             lastToolbarStyle = config.style.toolbar
             lastHandlesImagePick = parent.onImagePick != nil
+            lastHidesMarkers = parent.hidesMarkers
         }
 
         /// Re-applies the configuration when any visible property has
@@ -144,6 +147,7 @@ struct MarkdownTextView: UIViewRepresentable {
                 || lastTextColor != config.textColor
                 || lastBackground != config.backgroundColor
                 || lastContentInsets != config.style.textView.contentInsets
+                || lastHidesMarkers != parent.hidesMarkers
             let toolbarChanged = lastShowsToolbar != config.showsToolbar
                 || lastActions != actions
                 || lastToolbarStyle != config.style.toolbar
@@ -168,6 +172,7 @@ struct MarkdownTextView: UIViewRepresentable {
             lastShowsToolbar = config.showsToolbar
             lastToolbarStyle = config.style.toolbar
             lastHandlesImagePick = handlesImagePick
+            lastHidesMarkers = parent.hidesMarkers
             return appearanceChanged
         }
 
@@ -228,7 +233,8 @@ struct MarkdownTextView: UIViewRepresentable {
             let style = MarkdownSyntaxHighlighter.Style(bodyFont: parent.configuration.font,
                                                         monospacedFont: parent.configuration.monospacedFont,
                                                         textColor: parent.configuration.textColor,
-                                                        syntaxColor: parent.configuration.syntaxColor)
+                                                        syntaxColor: parent.configuration.syntaxColor,
+                                                        hidesMarkers: parent.hidesMarkers)
             let highlighter = MarkdownSyntaxHighlighter(style: style)
             let selected = textView.selectedRange
             let attributed = highlighter.highlight(textView.text ?? "")

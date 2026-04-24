@@ -22,8 +22,10 @@ import SwiftUI
 ///   with a rounded background.
 /// - **Selection-aware actions**: toolbar buttons wrap the current
 ///   selection or insert placeholder text at the cursor as appropriate.
-/// - **Source and preview modes**: the same bound text can be inspected as
-///   raw Markdown (the default) or as a read-only rendered preview; the
+/// - **Source, rich, and preview modes**: the same bound text can be
+///   edited as raw Markdown (the default), edited in a WYSIWYG-style
+///   view where the syntax markers are hidden and their formatting is
+///   applied inline, or viewed as a read-only rendered preview; the
 ///   host app drives the mode.
 /// - **Host-handled image picking**: when a host supplies an
 ///   ``onImagePick`` closure, the ``MarkdownAction/imagePicker`` toolbar
@@ -71,8 +73,10 @@ public struct MarkdownEditor: View {
     /// - Parameters:
     ///   - text: A binding to the Markdown source the user is editing.
     ///   - mode: The display mode. Pass ``MarkdownEditorMode/source`` for
-    ///     the editable source view (the default) or
-    ///     ``MarkdownEditorMode/preview`` for a read-only rendered preview.
+    ///     the editable source view (the default),
+    ///     ``MarkdownEditorMode/rich`` for an editable view where syntax
+    ///     markers are visually hidden, or ``MarkdownEditorMode/preview``
+    ///     for a read-only rendered preview.
     ///   - configuration: The configuration controlling toolbar contents,
     ///     appearance, and layout metrics.
     ///   - onImagePick: An optional closure invoked when the user taps the
@@ -93,12 +97,13 @@ public struct MarkdownEditor: View {
     public var body: some View {
         VStack(spacing: 0) {
             switch mode {
-            case .source:
+            case .source, .rich:
                 MarkdownTextView(text: $text,
                                  selection: $selection,
                                  isEditing: $isEditing,
                                  configuration: configuration,
                                  resolvedActions: resolvedActions,
+                                 hidesMarkers: mode == .rich,
                                  onImagePick: onImagePick)
                 if configuration.showsToolbar && !isEditing {
                     Divider()
@@ -156,6 +161,7 @@ public struct MarkdownEditor: View {
             VStack {
                 Picker("Mode", selection: $mode) {
                     Text("Source").tag(MarkdownEditorMode.source)
+                    Text("Rich").tag(MarkdownEditorMode.rich)
                     Text("Preview").tag(MarkdownEditorMode.preview)
                 }
                 .pickerStyle(.segmented)
