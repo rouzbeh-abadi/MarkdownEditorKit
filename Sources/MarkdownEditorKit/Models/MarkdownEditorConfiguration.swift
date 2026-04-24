@@ -120,5 +120,6 @@ public struct MarkdownEditorConfiguration: Equatable {
         .codeBlock,
         .link,
         .quote,
+        .horizontalRule,
     ]
 }

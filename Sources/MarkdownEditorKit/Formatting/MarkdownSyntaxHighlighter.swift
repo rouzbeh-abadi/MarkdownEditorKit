@@ -108,8 +108,10 @@ public struct MarkdownSyntaxHighlighter {
         case inlineCode
         case heading
         case fencedCode
+        case taskListMarker
         case listMarker
         case quote
+        case horizontalRule
         case link
     }
 
@@ -141,11 +143,20 @@ public struct MarkdownSyntaxHighlighter {
         Rule(pattern: "```[\\s\\S]*?```",
              kind: .fencedCode,
              options: []),
+        // Task-list prefix must come before the generic list marker so its
+        // full `- [ ] ` / `- [x] ` span is treated as a single marker span
+        // when hiding, rather than only the leading `- ` dash.
+        Rule(pattern: "^\\s*-\\s\\[[ xX]\\]\\s",
+             kind: .taskListMarker,
+             options: [.anchorsMatchLines]),
         Rule(pattern: "^\\s*(?:[-*+]|\\d+\\.) ",
              kind: .listMarker,
              options: [.anchorsMatchLines]),
-        Rule(pattern: "^> .*$",
+        Rule(pattern: "^> ",
              kind: .quote,
+             options: [.anchorsMatchLines]),
+        Rule(pattern: "^-{3,}$",
+             kind: .horizontalRule,
              options: [.anchorsMatchLines]),
         Rule(pattern: "\\[[^\\]]+\\]\\([^\\)]+\\)",
              kind: .link,
@@ -186,7 +197,7 @@ public struct MarkdownSyntaxHighlighter {
             let snippet = (string as NSString).substring(with: range)
             let level = snippet.prefix { $0 == "#" }.count
             attributed.addAttribute(.font, value: headingFont(for: level), range: range)
-        case .listMarker, .quote:
+        case .listMarker, .taskListMarker, .quote, .horizontalRule:
             attributed.addAttribute(.foregroundColor, value: style.syntaxColor, range: range)
         case .link:
             attributed.addAttributes([
@@ -236,7 +247,7 @@ public struct MarkdownSyntaxHighlighter {
             let hashes = snippet.prefix { $0 == "#" }.count
             let prefixLength = hashes + (snippet.dropFirst(hashes).first == " " ? 1 : 0)
             return [NSRange(location: range.location, length: prefixLength)]
-        case .listMarker, .quote:
+        case .listMarker, .taskListMarker, .quote, .horizontalRule:
             return [range]
         case .link:
             return linkMarkerRanges(in: range, within: string)
