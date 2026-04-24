@@ -22,5 +22,5 @@ jobs:
         run: |
           xcodebuild test \
             -scheme MarkdownEditorKit \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -destination 'platform=macOS,variant=Mac Catalyst' \
             | xcpretty && exit ${PIPESTATUS[0]}
