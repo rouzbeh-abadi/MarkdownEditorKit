@@ -139,6 +139,40 @@ struct MarkdownSyntaxHighlighterTests {
         #expect((titleFont?.pointSize ?? 0) > Self.baseSize)
     }
 
+    @Test("Quote prefix collapses but the line body stays visible")
+    func hiddenQuoteKeepsBody() {
+        let input = "> hello"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        let bodyFont = result.attribute(.font, at: 2, effectiveRange: nil) as? UIFont
+        #expect((prefixFont?.pointSize ?? 99) < 1)
+        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+    }
+
+    @Test("Task-list prefix collapses the full `- [ ] ` span")
+    func hiddenTaskListPrefix() {
+        let input = "- [ ] Buy milk"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        let bracketFont = result.attribute(.font, at: 2, effectiveRange: nil) as? UIFont
+        let bodyLocation = (input as NSString).range(of: "Buy").location
+        let bodyFont = result.attribute(.font, at: bodyLocation, effectiveRange: nil) as? UIFont
+        #expect((prefixFont?.pointSize ?? 99) < 1)
+        #expect((bracketFont?.pointSize ?? 99) < 1)
+        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+    }
+
+    @Test("Bullet-list prefix collapses when markers are hidden")
+    func hiddenBulletPrefix() {
+        let input = "- one"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        let bodyLocation = (input as NSString).range(of: "one").location
+        let bodyFont = result.attribute(.font, at: bodyLocation, effectiveRange: nil) as? UIFont
+        #expect((prefixFont?.pointSize ?? 99) < 1)
+        #expect((bodyFont?.pointSize ?? 0) >= Self.baseSize)
+    }
+
     @Test("Link URL tail collapses, title stays visible")
     func hiddenLinkMarkers() {
         let input = "see [docs](https://example.com) now"
