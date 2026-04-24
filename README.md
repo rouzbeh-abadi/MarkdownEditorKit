@@ -4,7 +4,7 @@
 
 A SwiftUI Markdown editor with inline syntax highlighting, a keyboard-accessory formatting toolbar, and a read-only rendered preview — built on top of `UITextView`.
 
-![Source, Rich, and Preview modes](.github/assets/editor-modes.png)
+<img src=".github/assets/editor-modes.png" alt="Source, Rich, and Preview modes" width="900">
 
 *From left to right: **Source** — editing raw Markdown with live highlighting; **Rich** — syntax markers hidden, formatting applied inline while you type; **Preview** — read-only rendered output.*
 
