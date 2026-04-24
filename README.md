@@ -1,5 +1,7 @@
 # MarkdownEditorKit
 
+[![CI](https://github.com/rouzbeh-abadi/MarkdownEditorKit/actions/workflows/ci.yml/badge.svg)](https://github.com/rouzbeh-abadi/MarkdownEditorKit/actions/workflows/ci.yml)
+
 A SwiftUI Markdown editor with inline syntax highlighting, a keyboard-accessory formatting toolbar, and a read-only rendered preview — built on top of `UITextView`.
 
 ![Source, Rich, and Preview modes](.github/assets/editor-modes.png)
