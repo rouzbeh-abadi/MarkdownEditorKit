@@ -251,24 +251,53 @@ struct MarkdownTextView: UIViewRepresentable {
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingHighlighting else { return }
-            parent.text = textView.text
-            parent.selection = textView.selectedRange
             applyHighlightingIfNeeded()
+            let newText = textView.text ?? ""
+            let newSelection = textView.selectedRange
+            deferToNextRunLoop { [weak self] in
+                guard let self else { return }
+                if self.parent.text != newText {
+                    self.parent.text = newText
+                }
+                if !NSEqualRanges(self.parent.selection, newSelection) {
+                    self.parent.selection = newSelection
+                }
+            }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard !isApplyingHighlighting else { return }
-            if !NSEqualRanges(parent.selection, textView.selectedRange) {
-                parent.selection = textView.selectedRange
+            let newSelection = textView.selectedRange
+            deferToNextRunLoop { [weak self] in
+                guard let self else { return }
+                if !NSEqualRanges(self.parent.selection, newSelection) {
+                    self.parent.selection = newSelection
+                }
             }
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {
-            parent.isEditing = true
+            deferToNextRunLoop { [weak self] in
+                self?.parent.isEditing = true
+            }
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
-            parent.isEditing = false
+            deferToNextRunLoop { [weak self] in
+                self?.parent.isEditing = false
+            }
+        }
+
+        /// Schedules a SwiftUI binding write for the next main-queue turn.
+        ///
+        /// UITextView's delegate callbacks can fire while SwiftUI is mid
+        /// view-update (for example, during layout triggered by a nested
+        /// `attributedText` assignment). Writing to `@Binding` synchronously
+        /// in that window trips SwiftUI's "modifying state during view
+        /// update" runtime warning, so we defer every binding write by a
+        /// run-loop tick.
+        private func deferToNextRunLoop(_ work: @escaping @MainActor () -> Void) {
+            DispatchQueue.main.async { work() }
         }
     }
 
