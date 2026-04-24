@@ -89,4 +89,68 @@ struct MarkdownSyntaxHighlighterTests {
         let color = result.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
         #expect(color == .gray)
     }
+
+    // MARK: - hidesMarkers
+
+    private static func makeHidingHighlighter() -> MarkdownSyntaxHighlighter {
+        let style = MarkdownSyntaxHighlighter.Style(bodyFont: .systemFont(ofSize: baseSize),
+                                                    monospacedFont: .monospacedSystemFont(ofSize: baseSize, weight: .regular),
+                                                    textColor: .black,
+                                                    syntaxColor: .gray,
+                                                    hidesMarkers: true)
+        return MarkdownSyntaxHighlighter(style: style)
+    }
+
+    @Test("Underlying string is unchanged when markers are hidden")
+    func hidingPreservesString() {
+        let input = "hello **world**"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        #expect(result.string == input)
+    }
+
+    @Test("Bold markers collapse when hidesMarkers is on")
+    func bothBoldMarkersCollapse() {
+        let input = "a **hey** b"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let openLocation = (input as NSString).range(of: "**hey**").location
+        let closeLocation = openLocation + 5 // start of trailing "**"
+        let openFont = result.attribute(.font, at: openLocation, effectiveRange: nil) as? UIFont
+        let closeFont = result.attribute(.font, at: closeLocation, effectiveRange: nil) as? UIFont
+        #expect((openFont?.pointSize ?? 99) < 1)
+        #expect((closeFont?.pointSize ?? 99) < 1)
+    }
+
+    @Test("Bold content keeps bold styling when markers are hidden")
+    func hiddenBoldKeepsContentStyling() {
+        let input = "a **hey** b"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let contentLocation = (input as NSString).range(of: "hey").location
+        let font = result.attribute(.font, at: contentLocation, effectiveRange: nil) as? UIFont
+        #expect(font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+    }
+
+    @Test("Heading hash prefix collapses when markers are hidden")
+    func hiddenHeadingPrefix() {
+        let input = "## Title"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let prefixFont = result.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        let titleFont = result.attribute(.font, at: 3, effectiveRange: nil) as? UIFont
+        #expect((prefixFont?.pointSize ?? 99) < 1)
+        #expect((titleFont?.pointSize ?? 0) > Self.baseSize)
+    }
+
+    @Test("Link URL tail collapses, title stays visible")
+    func hiddenLinkMarkers() {
+        let input = "see [docs](https://example.com) now"
+        let result = Self.makeHidingHighlighter().highlight(input)
+        let bracketLocation = (input as NSString).range(of: "[").location
+        let tailLocation = (input as NSString).range(of: "](").location
+        let titleLocation = (input as NSString).range(of: "docs").location
+        let bracketFont = result.attribute(.font, at: bracketLocation, effectiveRange: nil) as? UIFont
+        let tailFont = result.attribute(.font, at: tailLocation, effectiveRange: nil) as? UIFont
+        let titleFont = result.attribute(.font, at: titleLocation, effectiveRange: nil) as? UIFont
+        #expect((bracketFont?.pointSize ?? 99) < 1)
+        #expect((tailFont?.pointSize ?? 99) < 1)
+        #expect((titleFont?.pointSize ?? 0) >= Self.baseSize)
+    }
 }

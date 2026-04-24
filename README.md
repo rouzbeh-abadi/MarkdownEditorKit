@@ -8,7 +8,7 @@ A SwiftUI Markdown editor with inline syntax highlighting, a keyboard-accessory 
 - Live Markdown syntax highlighting while you type — headings, emphasis, lists (bulleted, numbered, and task), quotes, inline and fenced code, and links.
 - Floating formatting toolbar above the keyboard while editing, and at the bottom of the editor when the keyboard is dismissed. The toolbar sits inside its host with a rounded background and outer margins.
 - Task-list (`- [ ]` / `- [x]`) support, including a checkbox toolbar action.
-- Two display modes: `.source` (the editable view with live highlighting) and `.preview` (a read-only render where markers are hidden and their formatting is applied).
+- Three display modes: `.source` (editable with live highlighting), `.rich` (editable with syntax markers visually collapsed — a WYSIWYG-style live edit over the raw Markdown), and `.preview` (a read-only render).
 - Optional host-handled image picking: surface the `.imagePicker` action and provide an `onImagePick` closure to route the tap back into your app.
 - Customisable action set, fonts, colors, and layout metrics via `MarkdownEditorConfiguration`.
 - A pure, testable `MarkdownFormatter` and `MarkdownRenderer` you can drive from your own UI.
@@ -58,9 +58,9 @@ struct NoteEditorView: View {
 }
 ```
 
-### Source and preview modes
+### Source, rich, and preview modes
 
-The editor supports two modes — a live editable source view and a read-only rendered preview. The host app decides which is active, so the same bound text can be inspected in either form:
+The editor supports three modes — a live editable source view, a WYSIWYG-style editable rich view, and a read-only rendered preview. The host app decides which is active, so the same bound text can be inspected in any form without losing edits:
 
 ```swift
 struct NoteView: View {
@@ -70,7 +70,8 @@ struct NoteView: View {
     var body: some View {
         VStack {
             Picker("Mode", selection: $mode) {
-                Text("Write").tag(MarkdownEditorMode.source)
+                Text("Source").tag(MarkdownEditorMode.source)
+                Text("Rich").tag(MarkdownEditorMode.rich)
                 Text("Preview").tag(MarkdownEditorMode.preview)
             }
             .pickerStyle(.segmented)
@@ -82,7 +83,9 @@ struct NoteView: View {
 }
 ```
 
-In preview mode, Markdown markers are removed from the display and their formatting is applied: `**bold**` renders as **bold**, `# Heading` becomes a larger bold line, `- [ ] task` is shown with a ballot-box glyph, and so on.
+- `.source` shows the raw Markdown with live syntax highlighting — the markers stay visible as you type.
+- `.rich` keeps the text editable and the toolbar shown, but collapses Markdown markers so the view looks like the rendered output while you type: `**bold**` reads as **bold** with the asterisks hidden, `# Heading` renders as a larger bold line, and so on. The underlying text remains raw Markdown, so the bound source round-trips cleanly between modes.
+- `.preview` renders a read-only view where markers are removed and their formatting is applied: `- [ ] task` is shown with a ballot-box glyph, links become tappable, fenced code blocks stay monospaced, and the toolbar is not shown.
 
 ### Host-handled image picking
 
