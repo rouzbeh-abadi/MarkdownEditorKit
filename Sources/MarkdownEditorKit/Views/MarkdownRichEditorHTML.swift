@@ -102,7 +102,7 @@ enum MarkdownRichEditorHTML {
     }
 
     function getMarkdown() {
-      let md = blockMD(editor).trim();
+      let md = blockMD(editor).replace(/\u200B/g, '').trim();
       return md.replace(/\n{3,}/g, '\n\n');
     }
 
@@ -119,9 +119,88 @@ enum MarkdownRichEditorHTML {
       document.execCommand(cmd, false, val !== undefined ? val : null);
     }
 
-    function applyBold()          { execCmd('bold'); }
-    function applyItalic()        { execCmd('italic'); }
-    function applyStrikethrough() { execCmd('strikeThrough'); }
+    // For collapsed selections inside an inline format element, "exit" the
+    // element by inserting a zero-width-space text node *outside* it and
+    // placing the cursor inside that node. WebKit boundary rules then make
+    // the next typed character unformatted, queryCommandState flips to false
+    // (so the toolbar deselects), and the marker is stripped from the
+    // exported Markdown by getMarkdown().
+    function _exitInlineFormat(tagNames) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount || !sel.isCollapsed) return false;
+      let node = sel.getRangeAt(0).startContainer;
+      let inline = null;
+      while (node && node !== editor) {
+        if (node.nodeType === Node.ELEMENT_NODE && tagNames.includes(node.tagName.toLowerCase())) {
+          inline = node; break;
+        }
+        node = node.parentNode;
+      }
+      if (!inline) return false;
+      const zw = document.createTextNode('\u200B');
+      inline.parentNode.insertBefore(zw, inline.nextSibling);
+      const r = document.createRange();
+      r.setStart(zw, 1);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    }
+
+    // For collapsed selections that aren't already inside the format, insert
+    // an empty <tag> at the cursor with a zero-width space inside it and park
+    // the cursor in that zw node. The next typed character is appended into
+    // the inline element, so it picks up the format — even after the toolbar
+    // tap caused the WebView to briefly lose focus (which kills WebKit's
+    // built-in typing style).
+    function _enterInlineFormat(tagName) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount || !sel.isCollapsed) return false;
+      const el = document.createElement(tagName);
+      const zw = document.createTextNode('\u200B');
+      el.appendChild(zw);
+      sel.getRangeAt(0).insertNode(el);
+      const r = document.createRange();
+      r.setStart(zw, 1);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      return true;
+    }
+
+    function applyBold() {
+      editor.focus();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount && !sel.isCollapsed) {
+        document.execCommand('bold', false, null);
+        return;
+      }
+      if (_exitInlineFormat(['b', 'strong'])) { _reportSelection(); return; }
+      _enterInlineFormat('b');
+      _reportSelection();
+    }
+    function applyItalic() {
+      editor.focus();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount && !sel.isCollapsed) {
+        document.execCommand('italic', false, null);
+        return;
+      }
+      if (_exitInlineFormat(['i', 'em'])) { _reportSelection(); return; }
+      _enterInlineFormat('i');
+      _reportSelection();
+    }
+    function applyStrikethrough() {
+      editor.focus();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount && !sel.isCollapsed) {
+        document.execCommand('strikeThrough', false, null);
+        return;
+      }
+      if (_exitInlineFormat(['s', 'strike', 'del'])) { _reportSelection(); return; }
+      _enterInlineFormat('s');
+      _reportSelection();
+    }
     function applyHeading(n) {
       const cur = document.queryCommandValue('formatBlock').toLowerCase();
       execCmd('formatBlock', cur === 'h' + n ? 'p' : 'h' + n);
@@ -207,8 +286,12 @@ enum MarkdownRichEditorHTML {
       const parts = [];
       for (const child of root.childNodes) {
         const md = _nodeMD(child);
-        if (md !== null) parts.push(md);
+        if (md != null) parts.push(md);
       }
+      // Single \n between top-level blocks so consecutive paragraphs don't
+      // gain a phantom blank line in the source/preview after round-trip.
+      // An intentional empty paragraph contributes its own '' part, which
+      // becomes a blank line in the joined result.
       return parts.join('\n');
     }
 
@@ -220,17 +303,25 @@ enum MarkdownRichEditorHTML {
       const inner = () => Array.from(node.childNodes).map(_nodeMD).join('');
 
       switch (tag) {
-        case 'br':
-          return node.parentElement === editor ? '\n' : '';
-        case 'hr':   return '\n---';
-        case 'b': case 'strong': return '**' + inner() + '**';
-        case 'i': case 'em':    return '*' + inner() + '*';
-        case 'del': case 's': case 'strike': return '~~' + inner() + '~~';
+        case 'br':   return '\n';
+        case 'hr':   return '---';
+        case 'b': case 'strong': {
+          const c = inner().replace(/\u200B/g, '');
+          return c === '' ? '' : '**' + c + '**';
+        }
+        case 'i': case 'em': {
+          const c = inner().replace(/\u200B/g, '');
+          return c === '' ? '' : '*' + c + '*';
+        }
+        case 'del': case 's': case 'strike': {
+          const c = inner().replace(/\u200B/g, '');
+          return c === '' ? '' : '~~' + c + '~~';
+        }
         case 'code': {
           const inPre = node.parentElement && node.parentElement.tagName.toLowerCase() === 'pre';
           return inPre ? inner() : '`' + inner() + '`';
         }
-        case 'pre':  return '\n```\n' + inner().trim() + '\n```';
+        case 'pre':  return '```\n' + inner().trim() + '\n```';
         case 'a': {
           const href = node.getAttribute('href') || '';
           return '[' + inner() + '](' + href + ')';
@@ -348,25 +439,30 @@ enum MarkdownRichEditorHTML {
           if (text === '') {
             // Empty item → exit the list entirely
             _exitList(li, sel);
-          } else if (hasCheckbox) {
-            // Task list → new unchecked item
-            const newLi = document.createElement('li');
+            _reportChange();
+            return;
+          }
+          // Manually append a new sibling <li> of the same kind. iOS WebKit's
+          // native Enter handling here is unreliable (drops the checkbox on
+          // task lists), so we always do it ourselves.
+          const newLi = document.createElement('li');
+          if (hasCheckbox) {
             const cb = document.createElement('input');
             cb.type = 'checkbox';
             newLi.appendChild(cb);
-            li.parentNode.insertBefore(newLi, li.nextSibling);
-            const r = document.createRange();
-            r.setStartAfter(cb); r.collapse(true);
-            sel.removeAllRanges(); sel.addRange(r);
           } else {
-            // Bullet / numbered → new item of the same type
-            const newLi = document.createElement('li');
-            newLi.innerHTML = '<br>';
-            li.parentNode.insertBefore(newLi, li.nextSibling);
-            const r = document.createRange();
-            r.setStart(newLi, 0); r.collapse(true);
-            sel.removeAllRanges(); sel.addRange(r);
+            newLi.appendChild(document.createElement('br'));
           }
+          li.parentNode.insertBefore(newLi, li.nextSibling);
+          const nr = document.createRange();
+          if (hasCheckbox) {
+            nr.setStartAfter(newLi.firstChild);
+          } else {
+            nr.setStart(newLi, 0);
+          }
+          nr.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(nr);
           _reportChange();
           return;
         }
@@ -377,6 +473,37 @@ enum MarkdownRichEditorHTML {
           _exitList(li, sel);
           _reportChange();
           return;
+        }
+      }
+
+      // ── End-of-line Enter in <p>/<h*>: always start a plain paragraph ──────
+      // WebKit's default Enter inherits inline formatting (bold/italic/strike)
+      // into the new line. We override this for end-of-block Enter so the next
+      // line resets to plain text. Mid-line Enter still falls through to the
+      // browser so the line splits naturally.
+      if (e.key === 'Enter') {
+        let block = range.startContainer;
+        while (block && block.parentNode && block.parentNode !== editor) block = block.parentNode;
+        if (block && block.nodeType === Node.ELEMENT_NODE) {
+          const tag = block.tagName.toLowerCase();
+          if (tag === 'p' || /^h[1-6]$/.test(tag)) {
+            const tail = document.createRange();
+            tail.selectNodeContents(block);
+            tail.setStart(range.endContainer, range.endOffset);
+            const trailing = tail.toString().replace(/\u200B/g, '').trim();
+            if (trailing === '') {
+              e.preventDefault();
+              const newP = document.createElement('p');
+              newP.innerHTML = '<br>';
+              block.parentNode.insertBefore(newP, block.nextSibling);
+              const nr = document.createRange();
+              nr.setStart(newP, 0); nr.collapse(true);
+              sel.removeAllRanges(); sel.addRange(nr);
+              _reportChange();
+              _reportSelection();
+              return;
+            }
+          }
         }
       }
 
