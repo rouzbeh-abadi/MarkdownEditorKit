@@ -169,6 +169,23 @@ struct MarkdownSyntaxHighlighterTests {
         #expect(prefixColor == .gray)
     }
 
+    @Test("Link span carries a tappable .link attribute with the URL")
+    func linkAttributeIsAttached() {
+        let input = "see [docs](https://example.com) now"
+        let result = Self.makeHighlighter().highlight(input)
+        let linkLocation = (input as NSString).range(of: "[docs](https://example.com)").location
+        let url = result.attribute(.link, at: linkLocation, effectiveRange: nil) as? URL
+        #expect(url?.absoluteString == "https://example.com")
+    }
+
+    @Test("Schemeless link gains an https:// prefix in the .link attribute")
+    func schemelessLinkAttribute() {
+        let input = "[home](example.com)"
+        let result = Self.makeHighlighter().highlight(input)
+        let url = result.attribute(.link, at: 0, effectiveRange: nil) as? URL
+        #expect(url?.absoluteString == "https://example.com")
+    }
+
     @Test("Link URL tail collapses, title stays visible")
     func hiddenLinkMarkers() {
         let input = "see [docs](https://example.com) now"

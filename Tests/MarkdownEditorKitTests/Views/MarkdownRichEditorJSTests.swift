@@ -342,4 +342,129 @@ struct MarkdownRichEditorJSTests {
         #expect(hasHR == true)
         #expect(try await h.markdown().contains("---"))
     }
+
+    // MARK: Link sheet bridge
+
+    @Test("getSelectionText returns the currently selected text")
+    func getSelectionTextReturnsSelection() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hello world</p>")
+        try await h.selectContents(of: "p")
+        let selected = try await h.eval("getSelectionText()") as? String
+        #expect(selected == "hello world")
+    }
+
+    @Test("getSelectionText is empty when the selection is collapsed")
+    func getSelectionTextEmptyForCollapsedCursor() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hello</p>")
+        try await h.collapseCursorAtEnd(of: "p")
+        let selected = try await h.eval("getSelectionText()") as? String
+        #expect(selected == "")
+    }
+
+    @Test("applyLink replaces a range selection with a new <a>")
+    func applyLinkReplacesSelection() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>click me</p>")
+        try await h.selectContents(of: "p")
+        _ = try await h.eval("applyLink('https://example.com', 'click me')")
+        #expect(try await h.markdown() == "[click me](https://example.com)")
+    }
+
+    @Test("applyLink uses sheet text when it differs from the selected text")
+    func applyLinkPrefersSheetText() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>old</p>")
+        try await h.selectContents(of: "p")
+        _ = try await h.eval("applyLink('https://example.com', 'new')")
+        #expect(try await h.markdown() == "[new](https://example.com)")
+    }
+
+    @Test("applyLink falls back to URL as display text when text is empty")
+    func applyLinkFallsBackToURL() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hi</p>")
+        try await h.collapseCursorAtEnd(of: "p")
+        _ = try await h.eval("applyLink('https://example.com', '')")
+        #expect(try await h.markdown() == "hi[https://example.com](https://example.com)")
+    }
+
+    @Test("applyLink inserts at the cursor when no selection")
+    func applyLinkInsertsAtCursor() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hello </p>")
+        try await h.collapseCursorAtEnd(of: "p")
+        _ = try await h.eval("applyLink('https://example.com', 'docs')")
+        #expect(try await h.markdown() == "hello [docs](https://example.com)")
+    }
+
+    @Test("applyLink does nothing when URL is empty")
+    func applyLinkIgnoresEmptyURL() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hi</p>")
+        try await h.selectContents(of: "p")
+        _ = try await h.eval("applyLink('', 'text')")
+        #expect(try await h.markdown() == "hi")
+    }
+
+    // MARK: prepareLinkSheet / removeLink
+
+    @Test("prepareLinkSheet returns selected text and empty URL for plain selection")
+    func prepareLinkSheetPlainSelection() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>hello</p>")
+        try await h.selectContents(of: "p")
+        let info = try await h.eval("prepareLinkSheet()") as? [String: String]
+        #expect(info?["text"] == "hello")
+        #expect(info?["url"] == "")
+    }
+
+    @Test("prepareLinkSheet returns existing link text and URL when cursor on a link")
+    func prepareLinkSheetOnExistingLink() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p><a href=\"https://example.com\">click</a></p>")
+        try await h.selectContents(of: "a")
+        let info = try await h.eval("prepareLinkSheet()") as? [String: String]
+        #expect(info?["text"] == "click")
+        #expect(info?["url"] == "https://example.com")
+    }
+
+    @Test("Saved range from prepareLinkSheet drives applyLink even after selection is cleared")
+    func savedRangeDrivesApplyLink() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>before XXX after</p>")
+        // Select just "XXX".
+        _ = try await h.eval("""
+        (function(){
+          const p = document.querySelector('p');
+          const text = p.firstChild;
+          const r = document.createRange();
+          r.setStart(text, 7);   // 'before '.length
+          r.setEnd(text, 10);    // 'before XXX'.length
+          const s = window.getSelection();
+          s.removeAllRanges(); s.addRange(r);
+        })(); null
+        """)
+        _ = try await h.eval("prepareLinkSheet()")
+        // Simulate the sheet stealing focus: collapse the live selection at
+        // the end of the editor before applyLink runs.
+        try await h.collapseCursorAtEnd()
+        _ = try await h.eval("applyLink('https://x.com', 'XXX')")
+        // The original "XXX" should have been replaced (no duplicate).
+        #expect(try await h.markdown() == "before [XXX](https://x.com) after")
+    }
+
+    @Test("removeLink unwraps the existing link via prepareLinkSheet snapshot")
+    func removeLinkUnwraps() async throws {
+        let h = await makeHarness()
+        try await h.setInnerHTML("<p>see <a href=\"https://x.com\">docs</a> here</p>")
+        try await h.selectContents(of: "a")
+        _ = try await h.eval("prepareLinkSheet()")
+        try await h.collapseCursorAtEnd()
+        _ = try await h.eval("removeLink()")
+        #expect(try await h.markdown() == "see docs here")
+        let hasAnchor = try await h.eval("editor.querySelector('a') !== null") as? Bool
+        #expect(hasAnchor == false)
+    }
 }
