@@ -23,9 +23,11 @@ struct MarkdownRichWebView: UIViewRepresentable {
     @Binding var isEditing: Bool
     @Binding var activeActions: Set<MarkdownAction>
     @Binding var pendingAction: MarkdownAction?
+    @Binding var pendingLinkAction: LinkAction?
     let configuration: MarkdownEditorConfiguration
     let resolvedActions: [MarkdownAction]
     let onImagePick: (() -> Void)?
+    let onLinkRequested: ((_ selectedText: String, _ existingURL: String) -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
         let controller = WKUserContentController()
@@ -65,6 +67,18 @@ struct MarkdownRichWebView: UIViewRepresentable {
             // Clear after one run-loop tick to avoid modifying state mid-update.
             DispatchQueue.main.async {
                 context.coordinator.parent.pendingAction = nil
+            }
+        }
+
+        if let action = pendingLinkAction {
+            switch action {
+            case .insert(let url, let text):
+                context.coordinator.insertLink(url: url, text: text)
+            case .remove:
+                context.coordinator.removeLink()
+            }
+            DispatchQueue.main.async {
+                context.coordinator.parent.pendingLinkAction = nil
             }
         }
     }
@@ -118,11 +132,17 @@ struct MarkdownRichWebView: UIViewRepresentable {
                 if info["h1"] == true           { active.insert(.heading(level: 1)) }
                 if info["h2"] == true           { active.insert(.heading(level: 2)) }
                 if info["h3"] == true           { active.insert(.heading(level: 3)) }
+                if info["link"] == true         { active.insert(.link) }
                 parent.activeActions = active
 
             case MessageName.focusChanged.rawValue:
                 guard let focused = message.body as? Bool else { return }
                 parent.isEditing = focused
+
+            case MessageName.linkTapped.rawValue:
+                guard let urlString = message.body as? String,
+                      let url = LinkURL.normalize(urlString) else { return }
+                UIApplication.shared.open(url)
 
             default: break
             }
@@ -165,12 +185,47 @@ struct MarkdownRichWebView: UIViewRepresentable {
             case .quote:             js = "applyQuote()"
             case .inlineCode:        js = "applyInlineCode()"
             case .codeBlock:         js = "applyCodeBlock()"
-            case .link:              js = "applyLink()"
+            case .link:              requestLinkSheet(); return
             case .horizontalRule:    js = "insertHR()"
             case .imagePicker:       parent.onImagePick?(); return
-            case .image:             js = "applyLink()"; break
+            case .image:             requestLinkSheet(); return
             }
             webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Asks the WebView for the current selection state — a `(text, url)`
+        /// pair where `url` is non-empty when the cursor or selection is
+        /// inside an existing `<a>`. `prepareLinkSheet` also stashes a JS-side
+        /// snapshot of the range so the next `insertLink`/`removeLink` call
+        /// can restore it after the sheet has stolen focus.
+        private func requestLinkSheet() {
+            guard let webView else { return }
+            Task { @MainActor in
+                let result = try? await webView.evaluateJavaScript("prepareLinkSheet()")
+                let info = result as? [String: String] ?? [:]
+                let text = info["text"] ?? ""
+                let url = info["url"] ?? ""
+                self.parent.onLinkRequested?(text, url)
+            }
+        }
+
+        /// Inserts an `<a href="…">…</a>` into the editor at the selection
+        /// captured by the most recent `prepareLinkSheet` call.
+        func insertLink(url: String, text: String) {
+            guard let webView else { return }
+            let escapedURL = jsEscape(url)
+            let escapedText = jsEscape(text)
+            webView.evaluateJavaScript(
+                "applyLink('\(escapedURL)', '\(escapedText)')",
+                completionHandler: nil
+            )
+        }
+
+        /// Unwraps the link captured by the most recent `prepareLinkSheet`,
+        /// leaving the link's text in place.
+        func removeLink() {
+            guard let webView else { return }
+            webView.evaluateJavaScript("removeLink()", completionHandler: nil)
         }
 
         // MARK: Helpers
@@ -206,6 +261,7 @@ private enum MessageName: String, CaseIterable {
     case contentChanged
     case selectionChanged
     case focusChanged
+    case linkTapped
 }
 
 // MARK: - Weak proxy

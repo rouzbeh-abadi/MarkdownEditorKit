@@ -69,6 +69,8 @@ public struct MarkdownEditor: View {
     @State private var isEditing: Bool = false
     @State private var activeActions: Set<MarkdownAction> = []
     @State private var pendingRichAction: MarkdownAction? = nil
+    @State private var linkSheetData: LinkSheetData? = nil
+    @State private var pendingLinkAction: LinkAction? = nil
 
     /// Creates a Markdown editor.
     ///
@@ -120,9 +122,14 @@ public struct MarkdownEditor: View {
                                     isEditing: $isEditing,
                                     activeActions: $activeActions,
                                     pendingAction: $pendingRichAction,
+                                    pendingLinkAction: $pendingLinkAction,
                                     configuration: configuration,
                                     resolvedActions: resolvedActions,
-                                    onImagePick: onImagePick)
+                                    onImagePick: onImagePick,
+                                    onLinkRequested: { selectedText, existingURL in
+                                        linkSheetData = LinkSheetData(initialText: selectedText,
+                                                                      initialURL: existingURL)
+                                    })
                 if configuration.showsToolbar {
                     Divider()
                     MarkdownToolbar(actions: resolvedActions,
@@ -136,6 +143,17 @@ public struct MarkdownEditor: View {
         }
         .animation(.easeInOut(duration: 0.18), value: isEditing)
         .animation(.easeInOut(duration: 0.18), value: mode)
+        .sheet(item: $linkSheetData) { data in
+            MarkdownLinkSheet(initialURL: data.initialURL,
+                              initialText: data.initialText,
+                              isEditing: data.isEditing,
+                              onInsert: { url, text in
+                                  handleLinkInsertion(url: url, text: text)
+                              },
+                              onRemove: {
+                                  handleLinkRemoval()
+                              })
+        }
     }
 
     /// The actions that should actually appear in the toolbar, given the
@@ -153,6 +171,11 @@ public struct MarkdownEditor: View {
             onImagePick?()
             return
         }
+        if action == .link {
+            linkSheetData = LinkSheetData(initialText: selectedText(),
+                                          initialURL: "")
+            return
+        }
         let result = MarkdownFormatter.apply(action, to: text, in: selection)
         text = result.text
         selection = result.selection
@@ -163,7 +186,53 @@ public struct MarkdownEditor: View {
             onImagePick?()
             return
         }
+        // .link is forwarded to the WebView's coordinator, which queries the
+        // current selection text and calls back via `onLinkRequested` to open
+        // the sheet with that text pre-filled.
         pendingRichAction = action
+    }
+
+    /// Returns the user's currently selected substring in source mode, or
+    /// the empty string when the selection is empty or out of range.
+    private func selectedText() -> String {
+        let nsText = text as NSString
+        let location = max(0, selection.location)
+        let length = max(0, min(selection.length, nsText.length - location))
+        guard length > 0 else { return "" }
+        return nsText.substring(with: NSRange(location: location, length: length))
+    }
+
+    private func handleLinkInsertion(url: String, text linkText: String) {
+        switch mode {
+        case .source:
+            let display = linkText.isEmpty ? url : linkText
+            let markdown = "[\(display)](\(url))"
+            let nsText = self.text as NSString
+            let location = max(0, selection.location)
+            let length = max(0, min(selection.length, nsText.length - location))
+            let safeRange = NSRange(location: location, length: length)
+            self.text = nsText.replacingCharacters(in: safeRange, with: markdown)
+            let newLocation = location + (markdown as NSString).length
+            self.selection = NSRange(location: newLocation, length: 0)
+
+        case .rich:
+            pendingLinkAction = .insert(url: url, text: linkText)
+
+        case .preview:
+            break
+        }
+    }
+
+    private func handleLinkRemoval() {
+        switch mode {
+        case .rich:
+            pendingLinkAction = .remove
+        case .source, .preview:
+            // Source mode would need to locate the surrounding [text](url)
+            // syntax to strip — not handled in this version. The user can
+            // delete the syntax by hand.
+            break
+        }
     }
 }
 

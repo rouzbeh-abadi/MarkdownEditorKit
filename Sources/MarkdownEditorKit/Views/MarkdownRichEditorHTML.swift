@@ -81,6 +81,10 @@ enum MarkdownRichEditorHTML {
     const editor = document.getElementById('editor');
     let _lastMD = '';
     let _suppressing = false;
+    // Selection captured when the host opens the link sheet, restored when the
+    // host calls applyLink / removeLink. The sheet steals focus from the
+    // WebView, which collapses the selection — so we save it ourselves.
+    let _savedLinkRange = null;
 
     document.execCommand('defaultParagraphSeparator', false, 'p');
 
@@ -270,14 +274,113 @@ enum MarkdownRichEditorHTML {
       _reportChange();
     }
 
-    function applyLink() {
+    /// Walks ancestors of the selection's start and end containers looking
+    /// for an `<a>` element. Returns the link if either endpoint is inside
+    /// (or is) one — used to highlight the toolbar Link button when the
+    /// user's cursor or selection is on a link.
+    function _selectionLink() {
       const sel = window.getSelection();
-      const title = (sel && !sel.isCollapsed) ? sel.toString() : 'link';
-      const url = 'https://example.com';
-      execCmd('createLink', url);
-      // Update link text if it was empty
-      const anchor = document.querySelector('a[href="' + url + '"]');
-      if (anchor && anchor.textContent === '') anchor.textContent = title;
+      if (!sel || !sel.rangeCount) return null;
+      const range = sel.getRangeAt(0);
+      const candidates = [range.startContainer, range.endContainer];
+      for (const start of candidates) {
+        let n = start;
+        while (n && n !== editor) {
+          if (n.nodeType === Node.ELEMENT_NODE && n.tagName.toLowerCase() === 'a') return n;
+          n = n.parentNode;
+        }
+      }
+      return null;
+    }
+
+    /// Returns the currently selected text. Pure helper, no side effects.
+    function getSelectionText() {
+      const sel = window.getSelection();
+      if (!sel) return '';
+      return sel.toString().replace(/​/g, '');
+    }
+
+    /// Snapshot of the current selection state for the host to drive the
+    /// link sheet. Saves the live range to `_savedLinkRange` so a subsequent
+    /// applyLink/removeLink call can restore it after the sheet dismissed.
+    ///
+    /// Returns:
+    ///   { text: <string>, url: <string> }
+    /// If the cursor or selection is inside an existing `<a>`, the saved
+    /// range is expanded to cover the whole link and the returned `url`
+    /// holds the link's href — so the sheet opens in edit mode.
+    function prepareLinkSheet() {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) {
+        _savedLinkRange = null;
+        return { text: '', url: '' };
+      }
+      const link = _selectionLink();
+      if (link) {
+        const r = document.createRange();
+        r.selectNode(link);
+        _savedLinkRange = r;
+        return {
+          text: (link.textContent || '').replace(/​/g, ''),
+          url:  link.getAttribute('href') || ''
+        };
+      }
+      _savedLinkRange = sel.getRangeAt(0).cloneRange();
+      return {
+        text: _savedLinkRange.toString().replace(/​/g, ''),
+        url:  ''
+      };
+    }
+
+    function _restoreSavedLinkRange() {
+      if (!_savedLinkRange) return false;
+      try {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(_savedLinkRange);
+      } catch (_) {}
+      _savedLinkRange = null;
+      return true;
+    }
+
+    /// Inserts (or replaces) `<a href="url">text</a>` at the selection
+    /// captured by the most recent prepareLinkSheet call. If no range was
+    /// saved (e.g. applyLink was called directly without going through the
+    /// sheet flow), falls back to the live selection.
+    function applyLink(url, text) {
+      if (!url) return;
+      editor.focus();
+      _restoreSavedLinkRange();
+      const sel = window.getSelection();
+      const display = (text && text.length > 0) ? text : url;
+      const a = document.createElement('a');
+      a.href = url;
+      a.textContent = display;
+      if (sel && sel.rangeCount && !sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(a);
+      } else if (sel && sel.rangeCount) {
+        sel.getRangeAt(0).insertNode(a);
+      } else {
+        editor.appendChild(a);
+      }
+      const r = document.createRange();
+      r.setStartAfter(a);
+      r.collapse(true);
+      const s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      _reportChange();
+    }
+
+    /// Unwraps the link saved by prepareLinkSheet, leaving its text behind.
+    function removeLink() {
+      editor.focus();
+      if (!_restoreSavedLinkRange()) return;
+      document.execCommand('unlink', false, null);
+      _reportChange();
+      _reportSelection();
     }
 
     // ── DOM → Markdown ───────────────────────────────────────────────────────
@@ -395,6 +498,7 @@ enum MarkdownRichEditorHTML {
         h1:     block === 'h1',
         h2:     block === 'h2',
         h3:     block === 'h3',
+        link:   _selectionLink() !== null,
       });
     }
 
@@ -530,10 +634,56 @@ enum MarkdownRichEditorHTML {
 
     // ── Event wiring ─────────────────────────────────────────────────────────
 
-    // Checkbox taps don't fire 'input' on the contentEditable div, so report
-    // the change explicitly when a task-list checkbox is toggled.
+    // Click handling:
+    //   • Checkbox taps don't fire 'input' on the contentEditable div, so we
+    //     report the change explicitly when a task-list checkbox is toggled.
+    //   • Anchor taps post a `linkTapped` message to Swift so the host can
+    //     open the URL externally — the editor itself stays in editing mode.
+    function _findAnchor(node) {
+      while (node && node !== editor) {
+        if (node.nodeType === Node.ELEMENT_NODE && node.tagName.toLowerCase() === 'a') return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    function _openAnchor(a, e) {
+      const href = a && a.getAttribute('href');
+      if (!href) return;
+      if (e) { e.preventDefault(); e.stopPropagation(); }
+      post('linkTapped', href);
+    }
+
     editor.addEventListener('click', function(e) {
-      if (e.target.type === 'checkbox') _reportChange();
+      if (e.target.type === 'checkbox') { _reportChange(); return; }
+      const a = _findAnchor(e.target);
+      if (a) _openAnchor(a, e);
+    });
+
+    // iOS WKWebView contentEditable can swallow the synthetic click on
+    // links — touchend fires reliably, so use it as a fallback. We track a
+    // small movement threshold so drag gestures (e.g. text selection
+    // starting on a link) still work normally.
+    let _linkTouch = null;
+    editor.addEventListener('touchstart', function(e) {
+      const a = _findAnchor(e.target);
+      if (!a) { _linkTouch = null; return; }
+      const t = e.touches[0];
+      _linkTouch = { a: a, x: t.clientX, y: t.clientY, t: Date.now() };
+    }, { passive: true });
+    editor.addEventListener('touchmove', function(e) {
+      if (!_linkTouch) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - _linkTouch.x) > 6 || Math.abs(t.clientY - _linkTouch.y) > 6) {
+        _linkTouch = null;
+      }
+    }, { passive: true });
+    editor.addEventListener('touchend', function(e) {
+      if (!_linkTouch) return;
+      const elapsed = Date.now() - _linkTouch.t;
+      const a = _linkTouch.a;
+      _linkTouch = null;
+      if (elapsed < 500) _openAnchor(a, e);
     });
 
     editor.addEventListener('input', _reportChange);

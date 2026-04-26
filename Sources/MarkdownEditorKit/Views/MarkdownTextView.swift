@@ -56,6 +56,18 @@ struct MarkdownTextView: UIViewRepresentable {
         context.coordinator.applyConfiguration(to: textView)
         textView.text = text
         context.coordinator.applyHighlightingIfNeeded()
+
+        // UITextView only auto-opens links when isEditable == false. In
+        // source mode the view is editable, so install a tap recogniser that
+        // opens the URL when the tap lands on a character carrying a `.link`
+        // attribute. The system's tap-to-place-cursor gesture still runs
+        // alongside thanks to the simultaneous-recognition delegate hook.
+        let linkTap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleSourceLinkTap(_:))
+        )
+        linkTap.delegate = context.coordinator
+        textView.addGestureRecognizer(linkTap)
         return textView
     }
 
@@ -89,7 +101,7 @@ struct MarkdownTextView: UIViewRepresentable {
     /// Manages the UITextView delegate callbacks, highlighting, and the
     /// hosted input-accessory toolbar.
     @MainActor
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
 
         var parent: MarkdownTextView
         weak var textView: UITextView?
@@ -261,6 +273,38 @@ struct MarkdownTextView: UIViewRepresentable {
             if let rich = textView as? MarkdownRichTextView {
                 rich.setNeedsRuleOverlayUpdate()
             }
+        }
+
+        // MARK: Link taps in source mode
+
+        /// Opens the URL carried by the `.link` attribute under the tap.
+        /// Returns silently when the tap landed on plain text — the system's
+        /// own tap-to-place-cursor gesture handles that case.
+        @objc func handleSourceLinkTap(_ recognizer: UITapGestureRecognizer) {
+            guard let textView = recognizer.view as? UITextView,
+                  let attributedText = textView.attributedText,
+                  attributedText.length > 0 else { return }
+            let point = recognizer.location(in: textView)
+            guard let position = textView.closestPosition(to: point) else { return }
+            let index = textView.offset(from: textView.beginningOfDocument, to: position)
+            guard index >= 0, index < attributedText.length else { return }
+            let attrs = attributedText.attributes(at: index, effectiveRange: nil)
+            if let url = attrs[.link] as? URL {
+                UIApplication.shared.open(url)
+            } else if let urlString = attrs[.link] as? String,
+                      let url = LinkURL.normalize(urlString) {
+                UIApplication.shared.open(url)
+            }
+        }
+
+        // MARK: UIGestureRecognizerDelegate
+
+        nonisolated func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            // Allow the system's tap-to-place-cursor recogniser to run
+            // alongside our link-tap detector, so plain-text taps still
+            // position the caret.
+            true
         }
 
         // MARK: UITextViewDelegate

@@ -289,7 +289,7 @@ public struct MarkdownRenderer {
                 .foregroundColor: style.linkColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
             ]
-            if let url = token.url, let parsed = URL(string: url) {
+            if let url = token.url, let parsed = LinkURL.normalize(url) {
                 attributes[.link] = parsed
             }
             return NSAttributedString(string: token.content, attributes: attributes)
