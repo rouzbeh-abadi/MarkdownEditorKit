@@ -54,12 +54,48 @@ public struct MarkdownPreview: UIViewRepresentable {
             .foregroundColor: UIColor.systemBlue,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
+        // UITextView's built-in link interaction can be fragile (varies with
+        // TextKit version and iOS minor releases). Install our own tap
+        // recogniser so a tap anywhere on a `.link`-attributed character
+        // reliably opens the URL through `UIApplication.shared.open`.
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleTap(_:)))
+        tap.delegate = context.coordinator
+        textView.addGestureRecognizer(tap)
         apply(to: textView)
         return textView
     }
 
     public func updateUIView(_ uiView: UITextView, context: Context) {
         apply(to: uiView)
+    }
+
+    public func makeCoordinator() -> Coordinator { Coordinator() }
+
+    @MainActor
+    public final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+
+        @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let textView = recognizer.view as? UITextView,
+                  let attributed = textView.attributedText,
+                  attributed.length > 0 else { return }
+            let point = recognizer.location(in: textView)
+            guard let position = textView.closestPosition(to: point) else { return }
+            let index = textView.offset(from: textView.beginningOfDocument, to: position)
+            guard index >= 0, index < attributed.length else { return }
+            let attrs = attributed.attributes(at: index, effectiveRange: nil)
+            if let url = attrs[.link] as? URL {
+                UIApplication.shared.open(url)
+            } else if let urlString = attrs[.link] as? String,
+                      let url = LinkURL.normalize(urlString) {
+                UIApplication.shared.open(url)
+            }
+        }
+
+        nonisolated public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                                  shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            true
+        }
     }
 
     private func apply(to textView: UITextView) {

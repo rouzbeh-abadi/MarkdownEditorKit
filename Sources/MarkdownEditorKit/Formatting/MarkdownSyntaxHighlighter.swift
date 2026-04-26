@@ -210,11 +210,14 @@ public struct MarkdownSyntaxHighlighter {
                 attributed.addAttribute(.foregroundColor, value: style.syntaxColor, range: range)
             }
         case .link:
-            attributed.addAttributes([
-                                         .foregroundColor: UIColor.systemBlue,
-                                         .underlineStyle: NSUnderlineStyle.single.rawValue,
-                                     ],
-                                     range: range)
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: UIColor.systemBlue,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ]
+            if let url = extractLinkURL(from: range, in: string) {
+                attributes[.link] = url
+            }
+            attributed.addAttributes(attributes, range: range)
         }
 
         if style.hidesMarkers {
@@ -289,6 +292,21 @@ public struct MarkdownSyntaxHighlighter {
         let tailLocation = range.location + closeBracket.location
         let tailLength = range.length - closeBracket.location
         return [open, NSRange(location: tailLocation, length: tailLength)]
+    }
+
+    /// Pulls the URL out of a `[text](url)` match so we can attach it as the
+    /// `.link` attribute. UITextView uses that attribute to make the range
+    /// tappable in preview mode (auto-handled when `isEditable == false`)
+    /// and source mode (handled by an explicit tap gesture recogniser).
+    private func extractLinkURL(from range: NSRange, in string: String) -> URL? {
+        let snippet = (string as NSString).substring(with: range) as NSString
+        let bracket = snippet.range(of: "](")
+        guard bracket.location != NSNotFound else { return nil }
+        let urlStart = bracket.location + bracket.length
+        let urlLength = snippet.length - urlStart - 1   // strip trailing ')'
+        guard urlLength > 0 else { return nil }
+        let urlString = snippet.substring(with: NSRange(location: urlStart, length: urlLength))
+        return LinkURL.normalize(urlString)
     }
 
     private func fencedCodeMarkerRanges(in range: NSRange, within string: String) -> [NSRange] {
