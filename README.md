@@ -15,6 +15,8 @@ A SwiftUI Markdown editor with inline syntax highlighting, a keyboard-accessory 
 - Floating formatting toolbar above the keyboard while editing, and at the bottom of the editor when the keyboard is dismissed. The toolbar sits inside its host with a rounded background and outer margins.
 - Task-list (`- [ ]` / `- [x]`) support, including a checkbox toolbar action.
 - Three display modes: `.source` (editable with live highlighting), `.rich` (editable with syntax markers visually collapsed — a WYSIWYG-style live edit over the raw Markdown), and `.preview` (a read-only render).
+- **Link insertion and editing** — a toolbar button opens a modal sheet to set a URL and optional display text. In rich mode, tapping an existing link re-opens the sheet pre-filled, with a destructive Remove Link action.
+- **Tappable links in every mode** — links open in the system browser from source, rich, and preview modes alike. Schemeless URLs (e.g. `example.com`) gain an `https://` prefix automatically.
 - Optional host-handled image picking: surface the `.imagePicker` action and provide an `onImagePick` closure to route the tap back into your app.
 - Customisable action set, fonts, colors, and layout metrics via `MarkdownEditorConfiguration`.
 - A pure, testable `MarkdownFormatter` and `MarkdownRenderer` you can drive from your own UI.
@@ -33,7 +35,7 @@ Add the package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/rouzbeh-abadi/MarkdownEditorKit.git", from: "1.0.0")
+    .package(url: "https://github.com/rouzbeh-abadi/MarkdownEditorKit.git", from: "1.0.1")
 ]
 ```
 
@@ -112,6 +114,21 @@ MarkdownEditor(text: $markdown,
 ```
 
 When `onImagePick` is `nil`, the `.imagePicker` button is hidden automatically, so the two can be wired up together without the button ever appearing as a no-op.
+
+### Inserting and editing links
+
+The `.link` toolbar button opens a modal sheet where the user enters a URL and an optional display text. In **source** and **preview** modes, tapping a link opens it in the system browser. In **rich** mode, tapping a rendered link re-opens the sheet pre-filled, with an **Update** button and a destructive **Remove Link** action.
+
+Schemeless URLs are normalised automatically — `example.com` becomes `https://example.com` both in the `.link` attribute and when opening in the browser.
+
+Include `.link` in `enabledActions` to surface the button (it is included in the default configuration):
+
+```swift
+let configuration = MarkdownEditorConfiguration(enabledActions: [.bold, .italic, .link])
+MarkdownEditor(text: $markdown, configuration: configuration)
+```
+
+If you do not want the link button, omit `.link` from `enabledActions`.
 
 ### Custom toolbar and appearance
 
